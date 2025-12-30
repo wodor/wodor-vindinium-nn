@@ -31,6 +31,7 @@ export type AIDecision = {
   prioritiesUsed?: StrategyPriorities;
   dilemma?: StrategicDilemma;
   latency?: number;
+  activations?: number[]; // Values of the hidden layer for visualization
 };
 
 export type ModelWeights = {
@@ -44,6 +45,7 @@ export interface PopulationMember {
   accuracy: number;
   status: string;
   weights: ModelWeights;
+  generation: number;
 }
 
 export type Hero = {

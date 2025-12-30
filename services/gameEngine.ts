@@ -71,6 +71,9 @@ export class GameEngine {
 
     if (hero.life <= 0 || hero.crashed) return newState;
 
+    // Store previous position before moving
+    hero.lastPos = { ...hero.pos };
+
     const delta = { x: 0, y: 0 };
     if (move === Move.North) delta.y = -1;
     else if (move === Move.South) delta.y = 1;

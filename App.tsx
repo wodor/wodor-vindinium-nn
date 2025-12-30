@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { GameState, Move, GameLog, Hero, StrategyPriorities, AIDecision, PopulationMember, ModelWeights } from './types';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { GameState, Move, StrategyPriorities, AIDecision, GameLog, PopulationMember } from './types';
 import { GameEngine } from './services/gameEngine';
 import { getAIDecision } from './services/geminiService';
 import { NeuralEngine } from './services/neuralEngine';
@@ -9,353 +9,402 @@ import HeroStats from './components/HeroStats';
 import PythonSketch from './components/PythonSketch';
 import StrategyLab from './components/StrategyLab';
 import NeuralTraining from './components/NeuralTraining';
+import NeuralNetworkVis from './components/NeuralNetworkVis';
+
+const INITIAL_PRIORITIES: StrategyPriorities = {
+  survival: 50,
+  greed: 50,
+  aggression: 20,
+};
+
+// Seed initial population immediately to avoid empty states
+const INITIAL_POPULATION: PopulationMember[] = Array.from({ length: 8 }, (_, i) => ({
+  id: `G0-M${i}`,
+  fitness: 0,
+  accuracy: 0,
+  status: 'Awaiting',
+  weights: NeuralEngine.createRandomWeights(),
+  generation: 0
+}));
 
 const App: React.FC = () => {
+  // Game State
   const [gameState, setGameState] = useState<GameState | null>(null);
+  const [priorities, setPriorities] = useState<StrategyPriorities>(INITIAL_PRIORITIES);
   const [logs, setLogs] = useState<GameLog[]>([]);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1000);
-  const [isTurbo, setIsTurbo] = useState(true); // Metal mode active by default
-  const [priorities, setPriorities] = useState<StrategyPriorities>({ survival: 50, greed: 70, aggression: 30 });
-  const [isHITL, setIsHITL] = useState(false);
-  const [aiMode, setAiMode] = useState<'oracle' | 'neural'>('neural'); // Neural mode active by default
-  const [hitlWaiting, setHitlWaiting] = useState(false);
-  const [proposedDecision, setProposedDecision] = useState<AIDecision | null>(null);
-  const [countdown, setCountdown] = useState(10);
-  const [activeTab, setActiveTab] = useState<'game' | 'lab' | 'evolve'>('game');
-  const [currentScenario, setCurrentScenario] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isApplying, setIsApplying] = useState<string | null>(null);
-  const [notification, setNotification] = useState<string | null>(null);
-  const [deployedModel, setDeployedModel] = useState<ModelWeights | null>(null);
-  const [gpuLoad, setGpuLoad] = useState(0);
-
-  // Background Evolution State
-  const [generation, setGeneration] = useState(1);
-  const [avgFitness, setAvgFitness] = useState(12.5);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(true); 
+  const [activeTab, setActiveTab] = useState<'arena' | 'lab' | 'neural'>('arena');
+  const [lastDilemma, setLastDilemma] = useState<AIDecision['dilemma'] | null>(null);
+  const [lastActivations, setLastActivations] = useState<number[] | undefined>(undefined);
+  const [loading, setLoading] = useState(false);
   
-  const generateAgentId = (gen: number) => `x86-${gen}.${Math.random().toString(16).substring(2, 6).toUpperCase()}`;
+  // Neural Evolution Persistent State (Background Engine)
+  const [population, setPopulation] = useState<PopulationMember[]>(INITIAL_POPULATION);
+  const [generation, setGeneration] = useState(0);
+  const [history, setHistory] = useState<number[]>([]);
+  const [isAutoEvolving, setIsAutoEvolving] = useState(true);
+  const [isTraining, setIsTraining] = useState(false);
+  const [useNeuralAgent, setUseNeuralAgent] = useState(true);
+  const [activeNeuralWeights, setActiveNeuralWeights] = useState<PopulationMember | null>(INITIAL_POPULATION[0]);
 
-  const [population, setPopulation] = useState<PopulationMember[]>(() => [
-    { id: "v1.0.4-LTS", fitness: 85, accuracy: 0.92, status: 'Active', weights: NeuralEngine.createRandomWeights() },
-    { id: generateAgentId(1), fitness: 120, accuracy: 0.88, status: 'Active', weights: NeuralEngine.createRandomWeights() },
-    { id: generateAgentId(1), fitness: 45, accuracy: 0.75, status: 'Pruned', weights: NeuralEngine.createRandomWeights() },
-    { id: "ELITE-ALPHA", fitness: 145, accuracy: 0.95, status: 'Elite', weights: NeuralEngine.createRandomWeights() },
-  ]);
+  const autoPlayRef = useRef(false);
+  autoPlayRef.current = isAutoPlaying;
 
-  const gameLoopRef = useRef<any>(null);
-
+  // Initialize Game
   useEffect(() => {
     setGameState(GameEngine.createInitialState());
   }, []);
 
-  // Updated handleReboot: Only resets game state, not simulation flags (Turbo/Metal)
-  const handleReboot = useCallback(() => {
-    setIsPlaying(false);
-    if (gameLoopRef.current) clearTimeout(gameLoopRef.current);
+  // Background Evolutionary Cycle
+  const runEvolutionStep = useCallback(async () => {
+    if (isTraining || population.length === 0) return;
+    setIsTraining(true);
     
-    setGameState(GameEngine.createInitialState());
-    setLogs([]);
-    setCurrentScenario(null);
-    setGpuLoad(0);
-    setNotification("GAME BUFFER PURGED");
-  }, []);
+    // Simulate training computation
+    await new Promise(resolve => setTimeout(resolve, 600));
 
-  // Evolution Heartbeat with real mutation
+    const evaluatedPop = population.map(member => {
+      // Logic simulation: Fitness grows over generations with some stochastic noise
+      const noise = Math.random() * 30;
+      const progress = generation * 2.5;
+      const growth = Math.floor(noise + progress + 5);
+      return { ...member, fitness: member.fitness + growth, status: 'Evaluated' };
+    });
+
+    const sorted = [...evaluatedPop].sort((a, b) => b.fitness - a.fitness);
+    const topPerformer = sorted[0];
+    
+    // Auto-deploy the latest elite to the active agent
+    setActiveNeuralWeights(topPerformer);
+
+    const avgFitness = evaluatedPop.reduce((acc, m) => acc + m.fitness, 0) / evaluatedPop.length;
+    setHistory(prev => [...prev, avgFitness].slice(-60));
+
+    const nextGen = sorted.map((member, idx) => {
+      const nextId = `G${generation + 1}-M${idx}`;
+      if (idx === 0) return { ...member, status: 'Elite_Specimen', id: nextId, generation: generation + 1 };
+      
+      return {
+        ...member,
+        id: nextId,
+        weights: NeuralEngine.mutateWeights(topPerformer.weights, 0.25, 0.15),
+        status: 'Mutated_Child',
+        generation: generation + 1,
+        fitness: Math.floor(topPerformer.fitness * 0.9)
+      };
+    });
+
+    setPopulation(nextGen);
+    setGeneration(prev => prev + 1);
+    setIsTraining(false);
+  }, [population, generation, isTraining]);
+
+  // Persistent Evolution Loop
   useEffect(() => {
-    const interval = setInterval(() => {
-      setGeneration(g => {
-        const nextGen = g + 1;
-        if (nextGen % 5 === 0) {
-          setPopulation(currentPop => {
-            const sorted = [...currentPop].sort((a, b) => b.fitness - a.fitness);
-            const elite = { ...sorted[0], status: 'Elite' as const };
-            const runnerUp = { ...sorted[1], status: 'Active' as const };
-            
-            const spawn1 = {
-              id: generateAgentId(nextGen),
-              fitness: elite.fitness * 0.7,
-              accuracy: 0.8,
-              status: 'Active' as const,
-              weights: NeuralEngine.mutateWeights(elite.weights, 0.15)
-            };
-            
-            const spawn2 = {
-              id: generateAgentId(nextGen),
-              fitness: elite.fitness * 0.6,
-              accuracy: 0.78,
-              status: 'Active' as const,
-              weights: NeuralEngine.mutateWeights(runnerUp.weights, 0.1)
-            };
-            
-            return [elite, runnerUp, spawn1, spawn2];
-          });
+    let timer: NodeJS.Timeout;
+    if (isAutoEvolving && !isTraining) {
+      timer = setTimeout(() => {
+        runEvolutionStep();
+      }, 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [isAutoEvolving, isTraining, generation, runEvolutionStep]);
+
+  // Game Interaction logic
+  const handleStep = useCallback(async () => {
+    if (!gameState || gameState.finished || loading) return;
+
+    setLoading(true);
+    try {
+      const heroId = (gameState.turn % 4) + 1;
+      let decision: AIDecision;
+
+      if (heroId === 1) {
+        if (useNeuralAgent && activeNeuralWeights) {
+            decision = await NeuralEngine.getInference(gameState, heroId, activeNeuralWeights.weights);
         } else {
-          setPopulation(pop => 
-            pop.map(p => ({
-              ...p,
-              fitness: p.status === 'Pruned' ? p.fitness : p.fitness + (Math.random() * 8)
-            }))
-          );
+            decision = await getAIDecision(gameState, heroId, priorities, Math.random() > 0.85);
+            if (decision.dilemma) {
+                setLastDilemma(decision.dilemma);
+                if (autoPlayRef.current) setIsAutoPlaying(false);
+            }
         }
-        return nextGen;
-      });
-      setAvgFitness(f => f + (Math.random() * 4 - 1.5));
-      if (isTurbo && isPlaying) {
-        setGpuLoad(Math.floor(60 + Math.random() * 30));
+        setLastActivations(decision.activations);
       } else {
-        setGpuLoad(Math.floor(Math.random() * 12));
+        // Simple random moves for bots
+        const moves = [Move.North, Move.South, Move.East, Move.West, Move.Stay];
+        decision = {
+          move: moves[Math.floor(Math.random() * moves.length)],
+          reasoning: "Executing default behavioral pattern.",
+          confidence: 0.5
+        };
       }
-    }, isTurbo ? 600 : 3000);
-    return () => clearInterval(interval);
-  }, [isTurbo, isPlaying]);
 
+      const nextState = GameEngine.applyMove(gameState, heroId, decision.move);
+      setGameState(nextState);
+      
+      setLogs(prev => [{
+        turn: gameState.turn,
+        heroId,
+        decision,
+        timestamp: Date.now()
+      }, ...prev].slice(0, 40));
+
+    } catch (error) {
+      console.error("Simulation engine failure:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [gameState, priorities, loading, useNeuralAgent, activeNeuralWeights]);
+
+  // Auto-play game loop
   useEffect(() => {
-    if (notification) {
-      const timer = setTimeout(() => setNotification(null), 3000);
-      return () => clearTimeout(timer);
+    let interval: NodeJS.Timeout;
+    if (isAutoPlaying && gameState && !gameState.finished && !loading && !lastDilemma) {
+      interval = setTimeout(() => {
+        handleStep();
+      }, useNeuralAgent ? 150 : 800);
     }
-  }, [notification]);
+    return () => clearTimeout(interval);
+  }, [isAutoPlaying, gameState, loading, handleStep, lastDilemma, useNeuralAgent]);
 
-  const handleExecute = useCallback(async (finalPriorities?: StrategyPriorities, label?: string) => {
-    if (!gameState || gameState.finished) return;
-
-    let decision: AIDecision;
-    if (aiMode === 'neural' && !finalPriorities) {
-      const weightsToUse = deployedModel || population.find(p => p.status === 'Elite')?.weights || population[0].weights;
-      decision = await NeuralEngine.getInference(gameState, 1, weightsToUse);
-      if (isTurbo) decision.latency = (decision.latency || 0) * 0.05; 
-    } else {
-      const currentPriors = finalPriorities || priorities;
-      decision = await getAIDecision(gameState, 1, currentPriors);
-    }
-
-    const enhancedDecision = { ...decision };
-    if (label) enhancedDecision.reasoning = `Input: ${label}. ${decision.reasoning}`;
-
-    setLogs(prev => [{ turn: gameState.turn, heroId: 1, decision: enhancedDecision, timestamp: Date.now(), isManual: !!finalPriorities }, ...prev].slice(0, 50));
-
-    let nextState = GameEngine.applyMove(gameState, 1, decision.move);
-    if (!currentScenario) {
-      const moves: Move[] = [Move.North, Move.South, Move.East, Move.West, Move.Stay];
-      for (let i = 2; i <= 4; i++) {
-          nextState = GameEngine.applyMove(nextState, i, moves[Math.floor(Math.random() * moves.length)]);
-      }
-    }
-
-    setGameState(nextState);
-    setHitlWaiting(false);
-    setProposedDecision(null);
-    setIsApplying(null);
-    setCountdown(10);
-  }, [gameState, priorities, currentScenario, aiMode, deployedModel, population, isTurbo]);
-
-  const processTurn = useCallback(async () => {
-    if (!gameState || gameState.finished) {
-      setIsPlaying(false);
-      return;
-    }
-    await handleExecute();
-  }, [gameState, handleExecute]);
-
-  useEffect(() => {
-    if (isPlaying && !gameState?.finished) {
-      const effectiveSpeed = isTurbo ? 16 : speed;
-      gameLoopRef.current = setTimeout(processTurn, effectiveSpeed);
-    }
-    return () => clearTimeout(gameLoopRef.current);
-  }, [isPlaying, gameState, processTurn, speed, isTurbo]);
-
-  const loadLabScenario = (state: GameState, gherkin: string) => {
-    setGameState(state);
-    setCurrentScenario(gherkin);
-    setLogs([]);
-    setNotification("SCENARIO FLASHED TO MEMORY");
-    setIsPlaying(false);
+  const handleDilemmaChoice = (choicePriorities: StrategyPriorities) => {
+    setPriorities(choicePriorities);
+    setLastDilemma(null);
+    setIsAutoPlaying(true); 
   };
 
-  const deployNeuralModel = (modelId: string) => {
-    const model = population.find(p => p.id === modelId);
-    if (model) {
-      setDeployedModel(model.weights);
-      setNotification(`SYSTEM ACTIVATED: ${modelId}`);
-      setAiMode('neural');
-      setActiveTab('game');
-    }
+  const handleScenarioLoad = (state: GameState) => {
+    setGameState(state);
+    setLogs([]);
+    setLastDilemma(null);
+    setActiveTab('arena');
   };
 
   if (!gameState) return null;
 
   return (
-    <div className={`h-screen w-screen flex bg-[#020617] text-slate-100 overflow-hidden font-sans transition-all duration-700 border-[1px] border-cyan-500/20`}>
-      {/* Permanent Metal Background */}
-      <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#1e293b 1.5px, transparent 1.5px)', backgroundSize: '32px 32px' }}></div>
-      <div className="fixed inset-0 pointer-events-none z-[300] bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,255,255,0.02)_50%),linear-gradient(90deg,rgba(255,0,0,0.01),rgba(0,255,0,0.005),rgba(0,0,255,0.01))] bg-[length:100%_2px,3px_100%] opacity-40"></div>
-
-      {notification && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-top-4 duration-300">
-          <div className="bg-cyan-500 text-slate-950 shadow-cyan-500/50 px-8 py-4 rounded-full font-black text-xs uppercase tracking-[0.2em] shadow-2xl flex items-center gap-4 border border-white/20 backdrop-blur-md">
-            <span className="text-xl animate-pulse">⚡</span>
-            {notification}
+    <div className="min-h-screen bg-[#050810] text-slate-100 font-sans selection:bg-cyan-500/30 overflow-x-hidden">
+      <header className="border-b border-white/5 bg-slate-900/20 backdrop-blur-xl sticky top-0 z-50 px-8 py-5 flex justify-between items-center">
+        <div className="flex items-center gap-4">
+          <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.1)]">
+             <span className="text-2xl text-slate-900">⚛️</span>
+          </div>
+          <div>
+            <h1 className="text-2xl font-black tracking-tighter text-white uppercase italic leading-none">
+              Vindinium <span className="text-cyan-400 font-mono text-xs ml-1 not-italic font-bold">CORE_PROX</span>
+            </h1>
+            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] mt-1 opacity-60">Neural Agentic Framework</p>
           </div>
         </div>
-      )}
 
-      {/* Left Sidebar - Strategy Controls */}
-      <aside className="w-80 border-r border-slate-800 bg-slate-900/60 backdrop-blur-xl flex flex-col h-full z-40 shadow-2xl relative">
-        <div className="p-8 border-b border-slate-800/50">
-          <div className="flex items-center gap-3 mb-1">
-            <div className={`w-3.5 h-3.5 rounded-sm bg-cyan-400 shadow-[0_0_15px_#22d3ee] animate-pulse`}></div>
-            <h1 className="text-2xl font-black tracking-tighter text-white">COMMAND</h1>
-          </div>
-          <p className="text-[10px] text-slate-500 font-mono tracking-widest uppercase mb-6 opacity-60">Strategic Oversight</p>
+        <nav className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
+          {(['arena', 'lab', 'neural'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-500 ${
+                activeTab === tab 
+                  ? 'bg-white text-slate-950 shadow-[0_0_30px_rgba(255,255,255,0.2)] scale-105' 
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <main className="max-w-[1800px] mx-auto p-8 grid grid-cols-1 lg:grid-cols-12 gap-10">
+        
+        {/* Telemetry Column */}
+        <div className="lg:col-span-3 space-y-8 animate-in slide-in-from-left-8 duration-700">
+          <HeroStats heroes={gameState.heroes} />
           
-          <div className="flex gap-1 bg-black/40 p-1.5 rounded-xl border border-slate-800/50">
-            {['game', 'lab', 'evolve'].map((tab) => (
-              <button 
-                key={tab}
-                onClick={() => setActiveTab(tab as any)}
-                className={`flex-1 py-2 px-3 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === tab ? 'bg-cyan-600 shadow-lg text-white' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}
-              >{tab}</button>
+          <div className="p-8 rounded-[2.5rem] bg-slate-900/30 border border-white/5 backdrop-blur-sm space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Global Heuristics</h3>
+              <div className="flex items-center gap-2">
+                 <span className="text-[9px] text-slate-600 font-bold uppercase">AI Swap</span>
+                 <button 
+                   onClick={() => setUseNeuralAgent(!useNeuralAgent)}
+                   className={`w-10 h-5 rounded-full relative transition-colors duration-300 ${useNeuralAgent ? 'bg-cyan-500 shadow-[0_0_10px_rgba(34,211,238,0.4)]' : 'bg-slate-800'}`}
+                 >
+                    <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all duration-300 ${useNeuralAgent ? 'left-6' : 'left-1'}`}></div>
+                 </button>
+              </div>
+            </div>
+            
+            {(Object.keys(priorities) as Array<keyof StrategyPriorities>).map((key) => (
+              <div key={key} className="space-y-3">
+                <div className="flex justify-between text-[10px] font-black uppercase text-slate-400">
+                  <span className="tracking-widest">{key}</span>
+                  <span className="text-white font-mono">{priorities[key]}%</span>
+                </div>
+                <input 
+                  type="range"
+                  min="0"
+                  max="100"
+                  disabled={useNeuralAgent}
+                  value={priorities[key]}
+                  onChange={(e) => setPriorities(prev => ({ ...prev, [key]: parseInt(e.target.value) }))}
+                  className="w-full accent-white bg-slate-800 rounded-full h-1 appearance-none cursor-pointer opacity-80 hover:opacity-100 disabled:opacity-20"
+                />
+              </div>
             ))}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto no-scrollbar p-8 space-y-8">
-          {activeTab === 'game' ? (
-            <div className="space-y-8">
-              <div className={`space-y-6 p-6 rounded-3xl border transition-all duration-500 bg-cyan-500/5 border-cyan-500/30`}>
-                <div className="flex justify-between items-center">
-                  <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">Logic Engine</h3>
-                  <span className="text-[9px] font-black text-cyan-400 animate-pulse tracking-widest">ACTIVE_METAL</span>
-                </div>
-                
-                <div className="flex bg-black/30 p-1.5 rounded-2xl border border-slate-700/50">
-                  <button onClick={() => setAiMode('oracle')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${aiMode === 'oracle' ? 'bg-slate-700 text-white shadow-inner' : 'text-slate-500'}`}>Oracle</button>
-                  <button onClick={() => setAiMode('neural')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${aiMode === 'neural' ? 'bg-cyan-500 text-white shadow-lg' : 'text-slate-500'}`}>Neural</button>
-                </div>
-
-                <div className="space-y-3">
-                  <button onClick={() => setIsPlaying(!isPlaying)} className={`w-full py-4 rounded-2xl font-black text-xs uppercase transition-all shadow-xl hover:scale-[1.02] active:scale-[0.98] ${isPlaying ? 'bg-amber-500/10 text-amber-400 border border-amber-500/50' : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'}`}>
-                    {isPlaying ? 'SUSPEND SIM' : 'ENGAGE AGENT'}
-                  </button>
-                  <div className={`w-full py-3 rounded-2xl border transition-all text-[10px] font-black uppercase tracking-widest text-center bg-cyan-500/20 border-cyan-400 text-cyan-400 shadow-[inset_0_0_20px_rgba(34,211,238,0.1)]`}>
-                    ⚡ METAL OVERCLOCK ON
-                  </div>
-                </div>
-
-                <div className="space-y-2 pt-2">
-                  <div className="flex justify-between text-[9px] font-black text-cyan-500 uppercase tracking-widest">
-                    <span>Vector Utilization</span>
-                    <span>{gpuLoad}%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-                    <div className="h-full bg-cyan-400 transition-all duration-300 shadow-[0_0_10px_#22d3ee]" style={{ width: `${gpuLoad}%` }} />
-                  </div>
-                </div>
-              </div>
-              <HeroStats heroes={gameState.heroes} />
-            </div>
-          ) : activeTab === 'lab' ? (
-            <StrategyLab onLoadScenario={loadLabScenario} />
-          ) : (
-            <NeuralTraining onDeploy={deployNeuralModel} generation={generation} avgFitness={avgFitness} population={population} isTurbo={true} />
-          )}
-        </div>
-      </aside>
-
-      {/* Main Sandbox Area */}
-      <main className="flex-1 flex flex-col bg-[#01040f] relative overflow-hidden">
-        {/* Header - Fixed Height */}
-        <header className="h-20 border-b border-slate-800/50 px-10 flex justify-between items-center bg-slate-950/40 backdrop-blur-lg z-30 shadow-md">
-          <div className="flex items-center gap-16">
-            <div className="group">
-              <div className="text-[10px] uppercase text-slate-500 font-black tracking-widest mb-1 opacity-60">Context</div>
-              <div className={`text-sm font-black uppercase tracking-tight transition-colors ${currentScenario ? 'text-emerald-400' : 'text-blue-500'}`}>
-                {currentScenario ? 'Lab Prototype' : 'Standard Simulation'}
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase text-slate-500 font-black tracking-widest mb-1 opacity-60">Instruction</div>
-              <div className={`text-sm font-mono font-bold text-cyan-400`}>
-                METAL_XCORE_v3
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase text-slate-500 font-black tracking-widest mb-1 opacity-60">Turn</div>
-              <div className="text-sm font-mono font-bold text-white flex items-baseline gap-1">
-                {gameState.turn} <span className="text-[10px] text-slate-600">/ {gameState.maxTurns}</span>
-              </div>
+            
+            <div className={`p-4 rounded-2xl border transition-all duration-500 ${useNeuralAgent ? 'bg-cyan-500/5 border-cyan-500/20' : 'bg-slate-800/20 border-white/5'}`}>
+                <p className={`text-[10px] font-bold uppercase leading-tight tracking-tighter ${useNeuralAgent ? 'text-cyan-400' : 'text-slate-500'}`}>
+                    Mode: {useNeuralAgent ? `Neural_Elite G${activeNeuralWeights?.generation || 0}` : 'Gemini_Oracle'}
+                </p>
             </div>
           </div>
-          
-          <button 
-            onClick={handleReboot} 
-            className="flex items-center gap-2.5 px-6 py-2.5 rounded-2xl bg-slate-800/50 hover:bg-red-500/10 hover:text-red-400 border border-slate-700/50 transition-all text-[11px] font-black uppercase tracking-widest shadow-lg hover:border-red-500/30"
-          >
-            <span className="text-sm">🔄</span> REBOOT
-          </button>
-        </header>
 
-        {/* Board Viewport */}
-        <div className="flex-1 flex items-center justify-center p-12 overflow-hidden relative">
-           <div className={`relative transition-all duration-1000 scale-[1.04]`}>
-              <Board state={gameState} isTurbo={true} />
-              <div className="absolute -inset-8 border-2 border-cyan-500/10 rounded-[3rem] pointer-events-none shadow-[inset_0_0_100px_rgba(34,211,238,0.05)] animate-pulse"></div>
-           </div>
+          <PythonSketch />
         </div>
 
-        {/* HUD Elements for Turbo */}
-        <div className="absolute inset-0 pointer-events-none z-10">
-          <div className="absolute bottom-10 left-10 w-32 h-32 border-l border-b border-cyan-500/20 rounded-bl-3xl"></div>
-          <div className="absolute top-24 right-10 w-32 h-32 border-r border-t border-cyan-500/20 rounded-tr-3xl"></div>
-        </div>
-      </main>
-
-      {/* Right Sidebar - Telemetry Feed */}
-      <aside className="w-[420px] border-l border-slate-800 bg-slate-900/60 backdrop-blur-xl flex flex-col h-full z-40 shadow-2xl">
-        <div className="p-8 border-b border-slate-800/50 flex justify-between items-center">
-           <h2 className="text-sm font-black text-white uppercase tracking-[0.2em]">Telemetry</h2>
-           <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-              <span className="text-[9px] font-mono text-slate-400 tracking-widest">UPLINK_STABLE</span>
-           </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
-          {logs.map((log, idx) => (
-            <div key={idx} className={`group p-5 rounded-[2rem] border transition-all ${log.isManual ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-slate-800/20 border-slate-800'} hover:border-slate-600 hover:bg-slate-800/40`}>
-              <div className="flex justify-between items-center mb-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-[11px] font-mono font-bold text-slate-500">#{String(log.turn).padStart(3, '0')}</span>
-                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-lg border ${log.isManual ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5' : 'border-cyan-500/30 text-cyan-400 bg-cyan-500/5'}`}>
-                    {log.isManual ? 'Human' : 'Metal'}
-                  </span>
-                </div>
-                <div className={`text-[11px] font-black px-3 py-1 rounded-xl shadow-sm border transition-all group-hover:scale-105 ${log.decision.move === Move.Stay ? 'border-slate-700 text-slate-500 bg-slate-900/50' : 'border-white bg-white text-slate-950'}`}>
-                  {log.decision.move.toUpperCase()}
-                </div>
+        {/* Main Stage */}
+        <div className="lg:col-span-6 flex flex-col items-center space-y-8">
+          {activeTab === 'arena' && (
+            <div className="w-full flex flex-col items-center animate-in zoom-in-95 duration-700">
+              <Board state={gameState} isTurbo={useNeuralAgent && isAutoPlaying} />
+              
+              <div className="flex gap-6 w-full justify-center mt-10">
+                <button 
+                  onClick={handleStep}
+                  disabled={loading || gameState.finished}
+                  className="px-12 py-5 bg-white text-slate-950 font-black rounded-3xl hover:scale-105 transition-all active:scale-95 disabled:opacity-20 uppercase tracking-widest text-sm shadow-2xl"
+                >
+                  {loading ? 'Processing...' : 'Manual Tick'}
+                </button>
+                <button 
+                  onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+                  disabled={gameState.finished}
+                  className={`px-12 py-5 font-black rounded-3xl border transition-all active:scale-95 uppercase tracking-widest text-sm shadow-2xl ${
+                    isAutoPlaying 
+                      ? 'bg-red-500/10 border-red-500/30 text-red-500' 
+                      : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-500'
+                  }`}
+                >
+                  {isAutoPlaying ? 'Halt Simulation' : 'Automate Cycles'}
+                </button>
               </div>
-              <p className="text-[12px] text-slate-300 leading-relaxed font-medium opacity-90">"{log.decision.reasoning}"</p>
-              {log.decision.latency !== undefined && (
-                <div className="mt-4 pt-3 border-t border-slate-800/50 flex justify-between items-center">
-                   <div className="flex gap-1.5">
-                      <div className="w-1 h-1 rounded-full bg-slate-700"></div>
-                      <div className="w-1 h-1 rounded-full bg-slate-700"></div>
-                      <div className="w-1 h-1 rounded-full bg-slate-700"></div>
-                   </div>
-                   <span className="text-[9px] font-mono text-slate-600 tracking-tighter">INF_LATENCY: {log.decision.latency.toFixed(2)}ms</span>
+
+              {/* Activation Visualizer */}
+              <div className="w-full mt-10">
+                <NeuralNetworkVis activations={lastActivations} />
+              </div>
+
+              {/* Strategic Choice UI */}
+              {lastDilemma && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-slate-950/90 backdrop-blur-xl animate-in fade-in duration-500">
+                  <div className="max-w-3xl w-full p-12 rounded-[4rem] bg-gradient-to-br from-indigo-950 to-slate-900 border border-white/10 shadow-[0_0_100px_rgba(99,102,241,0.3)]">
+                    <div className="flex items-center gap-4 mb-8">
+                      <span className="px-4 py-1.5 bg-indigo-500 text-[10px] font-black rounded-full text-white uppercase tracking-[0.2em]">Strategic_Intervention</span>
+                      <div className="h-px flex-1 bg-white/10"></div>
+                    </div>
+                    <h3 className="text-4xl font-black mb-10 text-white leading-tight tracking-tighter">{lastDilemma.question}</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <button 
+                        onClick={() => handleDilemmaChoice(lastDilemma.optionA.priorities)}
+                        className="group p-10 rounded-[3rem] bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 transition-all text-left"
+                      >
+                        <div className="text-indigo-400 font-black text-xs uppercase mb-3 tracking-widest">{lastDilemma.optionA.label}</div>
+                        <p className="text-sm text-slate-300 group-hover:text-white leading-relaxed font-medium">{lastDilemma.optionA.description}</p>
+                      </button>
+                      <button 
+                        onClick={() => handleDilemmaChoice(lastDilemma.optionB.priorities)}
+                        className="group p-10 rounded-[3rem] bg-slate-800/30 border border-white/5 hover:bg-white/5 hover:border-white/10 transition-all text-left"
+                      >
+                        <div className="text-slate-400 font-black text-xs uppercase mb-3 tracking-widest">{lastDilemma.optionB.label}</div>
+                        <p className="text-sm text-slate-400 group-hover:text-white leading-relaxed font-medium">{lastDilemma.optionB.description}</p>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {gameState.finished && (
+                <div className="mt-12 text-center animate-in zoom-in-110 duration-1000">
+                  <div className="text-5xl font-black text-white uppercase italic tracking-tighter mb-4">Simulation Complete</div>
+                  <button onClick={() => window.location.reload()} className="px-8 py-3 bg-white/10 text-white rounded-2xl font-black uppercase text-xs border border-white/5 hover:bg-white/20 transition-all">Flush & Reset</button>
                 </div>
               )}
             </div>
-          ))}
-          {logs.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full opacity-10 py-20">
-              <span className="text-6xl mb-6">📡</span>
-              <p className="text-[12px] font-black uppercase tracking-[0.4em]">Signal Acquisition...</p>
+          )}
+
+          {activeTab === 'lab' && (
+            <div className="w-full max-w-2xl bg-slate-900/30 border border-white/5 p-12 rounded-[3.5rem] animate-in slide-in-from-bottom-12 duration-1000 backdrop-blur-xl">
+              <h2 className="text-4xl font-black mb-3 italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 to-cyan-300">Scenario_Forge</h2>
+              <p className="text-slate-500 text-sm mb-12 font-medium leading-relaxed">Design specialized edge cases for agent behavioral analysis using the Gherkin interface.</p>
+              <StrategyLab onLoadScenario={handleScenarioLoad} />
             </div>
           )}
+
+          {activeTab === 'neural' && (
+             <div className="w-full animate-in fade-in duration-1000">
+               <NeuralTraining 
+                 population={population}
+                 generation={generation}
+                 history={history}
+                 isAutoEvolving={isAutoEvolving}
+                 isTraining={isTraining}
+                 onToggleAutoEvolve={() => setIsAutoEvolving(!isAutoEvolving)}
+                 onManualStep={runEvolutionStep}
+               />
+             </div>
+          )}
         </div>
-      </aside>
+
+        {/* Inference Stream */}
+        <div className="lg:col-span-3">
+          <div className="sticky top-28 space-y-6 animate-in slide-in-from-right-8 duration-700">
+            <div className="flex justify-between items-center px-4">
+              <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] flex items-center gap-3">
+                <span className={`w-2 h-2 rounded-full animate-pulse ${useNeuralAgent ? 'bg-cyan-500' : 'bg-indigo-500'}`}></span>
+                Inference Stream
+              </h2>
+              <span className="text-[10px] font-mono text-slate-700 font-bold">LIVE_DATA</span>
+            </div>
+            
+            <div className="space-y-4 max-h-[78vh] overflow-y-auto pr-4 no-scrollbar scroll-smooth pb-10">
+              {logs.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-32 border border-dashed border-slate-800 rounded-[3rem]">
+                  <div className="w-10 h-10 rounded-full bg-slate-900 flex items-center justify-center mb-4">
+                    <span className="text-slate-700 opacity-50">⏳</span>
+                  </div>
+                  <p className="text-slate-700 text-[10px] font-black uppercase tracking-[0.3em]">Awaiting Cycle Start</p>
+                </div>
+              )}
+              {logs.map((log, i) => (
+                <div 
+                  key={i} 
+                  className={`p-6 rounded-3xl border transition-all duration-300 ${
+                    log.heroId === 1 
+                      ? 'bg-white/5 border-white/10 shadow-xl' 
+                      : 'bg-slate-900/20 border-white/5 opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  <div className="flex justify-between items-center mb-4">
+                    <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-lg ${
+                      log.heroId === 1 ? 'bg-white text-slate-950' : 'bg-slate-800 text-slate-500'
+                    }`}>
+                      Hero_{log.heroId}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-600 font-bold tracking-widest">T_{log.turn}</span>
+                  </div>
+                  <div className={`font-black text-sm mb-3 uppercase tracking-tighter ${log.heroId === 1 ? 'text-white' : 'text-slate-400'}`}>
+                    {log.decision.move}
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed font-medium italic opacity-70">
+                    "{log.decision.reasoning.substring(0, 120)}{log.decision.reasoning.length > 120 ? '...' : ''}"
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 };

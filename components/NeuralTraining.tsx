@@ -1,171 +1,172 @@
 
-import React, { useMemo } from 'react';
+import React from 'react';
 import { PopulationMember } from '../types';
 
 interface NeuralTrainingProps {
-  onDeploy: (modelId: string) => void;
-  generation: number;
-  avgFitness: number;
   population: PopulationMember[];
-  isTurbo?: boolean;
+  generation: number;
+  history: number[];
+  isAutoEvolving: boolean;
+  isTraining: boolean;
+  onToggleAutoEvolve: () => void;
+  onManualStep: () => void;
 }
 
 const NeuralTraining: React.FC<NeuralTrainingProps> = ({ 
-  onDeploy, 
+  population, 
   generation, 
-  avgFitness, 
-  population,
-  isTurbo = false
+  history, 
+  isAutoEvolving, 
+  isTraining,
+  onToggleAutoEvolve,
+  onManualStep
 }) => {
-  const networkGraph = useMemo(() => {
-    const visionInputs = 25; 
-    const statInputs = 8;    
-    const radarInputs = 8;
-    const inputCount = visionInputs + statInputs + radarInputs;
-    const hiddenCount = 12;  
-    const outputCount = 5;
-
-    return (
-      <svg viewBox="0 0 400 280" className={`w-full h-auto transition-opacity duration-500 ${isTurbo ? 'opacity-100' : 'opacity-80'}`}>
-        {/* Connections */}
-        {Array.from({ length: 15 }).map((_, i) => {
-          const inputIdx = Math.floor(Math.random() * inputCount);
-          return Array.from({ length: hiddenCount }).map((_, j) => (
-            <line 
-              key={`l1-${inputIdx}-${j}`}
-              x1={60} y1={15 + inputIdx * 6}
-              x2={200} y2={40 + j * 16}
-              stroke={isTurbo ? (inputIdx < 25 ? "rgba(34, 211, 238, 0.2)" : inputIdx < 33 ? "rgba(245, 158, 11, 0.2)" : "rgba(168, 85, 247, 0.2)") : "white"}
-              strokeWidth="0.3"
-              opacity={0.2}
-              className="animate-pulse"
-              style={{ animationDelay: `${Math.random() * 2}s` }}
-            />
-          ))
-        })}
-        
-        {/* Input Nodes: Vision Group (Cyan) */}
-        {Array.from({ length: visionInputs }).map((_, i) => (
-          <circle key={`vis-${i}`} cx={60} cy={15 + i * 6} r="2" fill={isTurbo ? "#0891b2" : "#64748b"} />
-        ))}
-        {/* Input Nodes: Stats Group (Amber) */}
-        {Array.from({ length: statInputs }).map((_, i) => (
-          <circle key={`stat-${i}`} cx={60} cy={15 + (visionInputs + i) * 6 + 6} r="2.5" fill={isTurbo ? "#f59e0b" : "#b45309"} />
-        ))}
-        {/* Input Nodes: Radar Group (Purple) */}
-        {Array.from({ length: radarInputs }).map((_, i) => (
-          <circle key={`rad-${i}`} cx={60} cy={15 + (visionInputs + statInputs + i) * 6 + 12} r="2.5" fill={isTurbo ? "#a855f7" : "#7e22ce"} />
-        ))}
-
-        {/* Hidden Layer Nodes */}
-        {Array.from({ length: hiddenCount }).map((_, i) => (
-          <circle key={`hid-${i}`} cx={200} cy={40 + i * 16} r="4" fill={isTurbo ? "#22d3ee" : "#10b981"} />
-        ))}
-
-        {/* Output Layer Nodes */}
-        {Array.from({ length: outputCount }).map((_, i) => (
-          <circle key={`out-${i}`} cx={340} cy={70 + i * 30} r="5" fill="#f8fafc" className={isTurbo ? 'animate-pulse' : ''} />
-        ))}
-
-        {/* Labels */}
-        <text x="5" y="80" transform="rotate(-90 5 80)" fill="#64748b" fontSize="7" fontWeight="black">5x5 VISION</text>
-        <text x="5" y="180" transform="rotate(-90 5 180)" fill="#f59e0b" fontSize="7" fontWeight="black">HERO STATS</text>
-        <text x="5" y="250" transform="rotate(-90 5 250)" fill="#a855f7" fontSize="7" fontWeight="black">LONG RADAR</text>
-        <text x="350" y="135" fill="#f8fafc" fontSize="8" fontWeight="bold">MOVE VECTOR</text>
-      </svg>
-    );
-  }, [generation, isTurbo]);
+  // Enhanced chart height calculation to ensure visibility even for low fitness values
+  const maxHistoryValue = Math.max(...history, 1);
 
   return (
-    <div className="space-y-6">
-      <div className={`border rounded-2xl p-5 space-y-4 transition-all duration-500 bg-cyan-900/10 border-cyan-500/30 shadow-[0_0_30px_rgba(6,182,212,0.05)]`}>
-        <div className="flex justify-between items-end">
-          <div>
-            <div className={`text-[10px] font-black uppercase tracking-[0.2em] mb-1 text-cyan-400`}>
-              Integrated Topology v4
-            </div>
-            <h2 className="text-2xl font-black text-white tracking-tighter flex items-center gap-2">
-              Neural Network
-              <span className="text-[10px] bg-cyan-400 text-slate-950 px-2 py-0.5 rounded-full uppercase font-bold tracking-tighter">Radar Enabled</span>
-            </h2>
+    <div className="w-full max-w-6xl mx-auto space-y-8 animate-in fade-in duration-1000">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end bg-slate-900/40 p-10 rounded-[2.5rem] border border-slate-800/50 backdrop-blur-sm shadow-2xl gap-6">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-2">
+            <span className={`w-3 h-3 rounded-full ${isAutoEvolving ? 'bg-cyan-500 animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.8)]' : 'bg-slate-700'}`}></span>
+            <h2 className="text-4xl font-black italic tracking-tighter text-white uppercase">Neural_Evolver</h2>
           </div>
-          <div className="text-right">
-            <div className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">Generation</div>
-            <div className={`text-xl font-mono font-bold text-cyan-400`}>#{generation}</div>
-          </div>
+          <p className="text-slate-500 text-sm font-medium leading-relaxed max-w-md">
+            Background synthesis is {isAutoEvolving ? 'active' : 'on standby'}. 
+            Propagating 41-16-5 decision matrices through persistent genetic mutation loops.
+          </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
-            <div className="text-[9px] text-slate-500 font-bold uppercase mb-2">Mean Fitness</div>
-            <div className="text-lg font-mono font-bold text-white">{avgFitness.toFixed(2)}</div>
-          </div>
-          <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
-            <div className="text-[9px] text-slate-500 font-bold uppercase mb-2">Total Inputs</div>
-            <div className="text-lg font-mono font-bold text-white">41 Neurons</div>
-          </div>
+        <div className="flex gap-4 items-center">
+            <button 
+                onClick={onToggleAutoEvolve}
+                className={`flex items-center gap-3 px-6 py-4 rounded-2xl border transition-all font-black uppercase tracking-widest text-[10px] ${
+                    isAutoEvolving 
+                    ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.1)]' 
+                    : 'bg-slate-800/50 border-slate-700 text-slate-500'
+                }`}
+            >
+                {isAutoEvolving ? '⏸ PAUSE AUTO-EVOLVE' : '▶ RESUME AUTO-EVOLVE'}
+            </button>
+
+            <div className="flex gap-8 items-center bg-black/30 p-6 rounded-3xl border border-white/5">
+                <div className="text-right">
+                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1">Current_Gen</div>
+                    <div className="text-5xl font-mono text-cyan-400 font-black tracking-tighter">{generation}</div>
+                </div>
+            </div>
         </div>
       </div>
 
-      <div className="space-y-3">
-        <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Active Population</h3>
-        {population.map((agent, i) => (
-          <div key={agent.id} className={`p-4 rounded-xl border flex items-center justify-between transition-all group ${
-            agent.status === 'Elite' ? 'bg-cyan-500/5 border-cyan-500/30 shadow-sm' : 
-            agent.status === 'Pruned' ? 'bg-slate-900/20 border-slate-800 opacity-40' : 'bg-slate-900/40 border-slate-800'
-          }`}>
-            <div className="flex items-center gap-4">
-              <div className="text-xs font-mono text-slate-500">0{i+1}</div>
-              <div>
-                <div className="text-xs font-black text-white">{agent.id}</div>
-                <div className="text-[9px] font-bold text-slate-500 uppercase">{agent.status}</div>
-              </div>
+      {/* History Sparkline - Persistent Data Flow */}
+      <div className="bg-slate-900/40 p-6 rounded-[2rem] border border-slate-800/50 relative overflow-hidden">
+        <div className="flex justify-between items-center mb-4">
+            <div className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Fitness Progression Loop (Last 60 Gen)</div>
+            {isTraining && <span className="text-[8px] font-mono text-cyan-500 animate-pulse">OPTIMIZING_WEIGHTS...</span>}
+        </div>
+        <div className="flex items-end gap-1 h-32 px-2">
+          {history.length === 0 && (
+            <div className="text-slate-800 font-mono text-[9px] w-full text-center py-12 uppercase tracking-widest border border-dashed border-slate-800/50 rounded-2xl">
+              Waiting for neural engine to establish baseline metrics...
             </div>
-            
-            <div className="flex items-center gap-4">
-              <div className="text-right hidden sm:block">
-                <div className="text-[8px] text-slate-500 font-bold uppercase">Fitness</div>
-                <div className="text-xs font-mono font-bold">{Math.round(agent.fitness)}</div>
+          )}
+          {history.map((val, i) => {
+            // Calculate height as percentage, min 2% to ensure visibility
+            const h = (val / maxHistoryValue) * 100;
+            return (
+              <div 
+                key={i} 
+                title={`Fitness: ${val.toFixed(2)}`}
+                className="flex-1 bg-cyan-500/20 hover:bg-cyan-400 transition-all rounded-t-sm" 
+                style={{ height: `${Math.max(2, h)}%` }}
+              ></div>
+            );
+          })}
+        </div>
+        <div className="absolute bottom-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent"></div>
+      </div>
+
+      {/* Population Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {population.map((member) => {
+          const isElite = member.status === 'Elite_Specimen';
+          return (
+            <div key={member.id} className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800/50 space-y-4 relative overflow-hidden group hover:bg-slate-900/80 hover:border-cyan-500/40 transition-all duration-500 shadow-xl">
+              <div className="flex justify-between items-start">
+                <span className="text-[10px] font-mono text-slate-500 font-bold">{member.id}</span>
+                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter ${
+                  isElite 
+                    ? 'bg-cyan-400 text-slate-950 shadow-[0_0_15px_rgba(34,211,238,0.4)]' 
+                    : 'bg-slate-800 text-slate-400'
+                }`}>
+                  {member.status.replace('_', ' ')}
+                </span>
               </div>
               
-              {agent.status !== 'Pruned' && (
-                <button 
-                  onClick={() => onDeploy(agent.id)}
-                  className={`px-3 py-1.5 text-slate-950 text-[9px] font-black uppercase rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap bg-cyan-400`}
-                >
-                  Deploy Model
-                </button>
-              )}
+              <div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Raw_Fitness</div>
+                <div className="text-3xl font-mono text-white font-black">{member.fitness}</div>
+              </div>
+
+              <div className="space-y-1">
+                  <div className="w-full bg-slate-800/50 h-1.5 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-1000 ease-out ${
+                        isElite ? 'bg-cyan-400' : 'bg-slate-600'
+                      }`} 
+                      style={{ width: `${Math.min(100, (member.fitness / (Math.max(...population.map(p => p.fitness), 1))) * 100)}%` }}
+                    ></div>
+                  </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      <div className={`p-5 rounded-2xl border space-y-4 transition-all duration-500 bg-cyan-900/20 border-cyan-500/20`}>
-        <div className="flex justify-between items-center">
-          <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Network Topology</h3>
-          <div className="text-[8px] font-black text-purple-400 uppercase tracking-widest animate-pulse">Radar Active: 360° Scan</div>
+      {!isAutoEvolving && (
+        <button
+            onClick={onManualStep}
+            disabled={isTraining}
+            className="group w-full py-8 bg-white text-slate-950 font-black rounded-[2.5rem] shadow-2xl hover:bg-cyan-400 transition-all active:scale-[0.98] disabled:opacity-30 flex items-center justify-center gap-4 overflow-hidden"
+        >
+            {isTraining ? (
+            <>
+                <div className="w-6 h-6 border-4 border-slate-950 border-t-transparent rounded-full animate-spin"></div>
+                <span className="uppercase tracking-[0.3em] text-lg italic">Processing Mutation Chain...</span>
+            </>
+            ) : (
+            <>
+                <span className="uppercase tracking-[0.3em] text-lg italic">Trigger Manual Propagation</span>
+            </>
+            )}
+        </button>
+      )}
+
+      {/* Network Schema */}
+      <div className="p-10 rounded-[3rem] bg-slate-950/50 border border-slate-800/80 border-dashed backdrop-blur-md">
+        <div className="flex items-center gap-4 mb-8">
+          <h4 className="text-xs font-black text-slate-500 uppercase tracking-[0.3em]">Synaptic Topology</h4>
+          <div className="h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent"></div>
         </div>
-        <div className="bg-black/50 rounded-xl p-4 border border-slate-800 relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/5 to-transparent animate-[shimmer_2s_infinite]"></div>
-          {networkGraph}
-        </div>
-        <div className="space-y-2">
-            <p className="text-[10px] text-slate-400 leading-relaxed font-medium">
-              The agent now uses <span className="text-purple-400 font-bold">Relative Radar</span> to navigate toward distant targets outside its 5x5 vision. 
-            </p>
-            <p className="text-[9px] text-slate-500 leading-relaxed italic">
-              Inputs: Vision (25), Stats (8), Radar (8). Total: 41. Hidden: 16. Output: 5.
-            </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-12 text-center">
+          <div className="p-8 rounded-3xl bg-slate-900/30 border border-white/5 group hover:border-cyan-500/20 transition-all">
+            <div className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-3">Input_Array</div>
+            <div className="text-5xl font-mono font-black text-white group-hover:text-cyan-400 transition-colors">41</div>
+            <p className="text-[9px] text-slate-600 mt-2 italic">Vision / Stats / Radar</p>
+          </div>
+          <div className="p-8 rounded-3xl bg-slate-900/30 border border-white/5 group hover:border-cyan-500/20 transition-all">
+            <div className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-3">Latent_Space</div>
+            <div className="text-5xl font-mono font-black text-white group-hover:text-cyan-400 transition-colors">16</div>
+            <p className="text-[9px] text-slate-600 mt-2 italic">Non-Linear Transformation</p>
+          </div>
+          <div className="p-8 rounded-3xl bg-slate-900/30 border border-white/5 group hover:border-cyan-500/20 transition-all">
+            <div className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-3">Control_Policy</div>
+            <div className="text-5xl font-mono font-black text-white group-hover:text-cyan-400 transition-colors">05</div>
+            <p className="text-[9px] text-slate-600 mt-2 italic">N / S / E / W / Stay</p>
+          </div>
         </div>
       </div>
-      
-      <style>{`
-        @keyframes shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-      `}</style>
     </div>
   );
 };

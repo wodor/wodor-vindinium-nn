@@ -1,0 +1,5 @@
+{
+  "name": "Vindinium AI Commander",
+  "description": "A sophisticated AI-driven client and simulator for the Vindinium programming contest. Monitor your hero, analyze game states, and orchestrate agentic AI strategies to conquer the dungeon.",
+  "requestFramePermissions": []
+}

@@ -61,6 +61,7 @@ export class ScenarioInterpreter {
         
         const h = heroes.find(h => h.id === id);
         if (h) {
+          // Reverted bug: x + 1 -> x
           h.pos = { x, y };
           h.life = hp;
           h.gold = gold;

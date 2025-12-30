@@ -2,11 +2,18 @@
 import { GameState, Move, AIDecision, ModelWeights, Pos } from '../types';
 
 /**
- * Optimized Inference Engine with Peripheral Radar & Activation Tracking
+ * Deep Neural Inference Engine supporting dynamic topologies
+ * Expanded Input Schema (48 units):
+ * - [0..24]   Vision (5x5 local grid)
+ * - [25..28]  HP (All 4 heroes)
+ * - [29..32]  Gold (All 4 heroes)
+ * - [33..36]  Mines (All 4 heroes)
+ * - [37..44]  Legacy Radars (Tavern, NeutMine, EnemyMine, EnemyHero)
+ * - [45..46]  Global Mine Radar (Closest Non-Owned Mine)
+ * - [47]      Turn Progress (0.0 -> 1.0)
  */
 export class NeuralEngine {
-  private static INPUT_SIZE = 41; // 25 vision + 8 stats + 8 radar
-  private static HIDDEN_SIZE = 16;
+  private static INPUT_SIZE = 48;
   private static OUTPUT_SIZE = 5;
 
   private static relu(x: number): number {
@@ -23,24 +30,27 @@ export class NeuralEngine {
     if (!hero) throw new Error("Hero not found");
 
     const size = state.board.size;
-    const tiles: string[] = [];
-    for (let i = 0; i < state.board.tiles.length; i += 2) {
-      tiles.push(state.board.tiles.substring(i, i + 2));
-    }
+    const tilesStr = state.board.tiles;
 
-    // 1. Input construction (Feature Engineering)
+    const getTileAt = (x: number, y: number): string | null => {
+      if (x < 0 || x >= size || y < 0 || y >= size) return null;
+      const idx = (y * size + x) * 2;
+      return tilesStr.substring(idx, idx + 2);
+    };
+
     const inputs: number[] = new Array(this.INPUT_SIZE).fill(0);
     let idx = 0;
     
-    // Group A: Local Vision 5x5 (25 neurons)
+    // Vision (5x5)
     for (let dy = -2; dy <= 2; dy++) {
       for (let dx = -2; dx <= 2; dx++) {
         const tx = hero.pos.x + dx;
         const ty = hero.pos.y + dy;
-        if (tx < 0 || tx >= size || ty < 0 || ty >= size) {
-          inputs[idx++] = -1; // Out of bounds
+        const tile = getTileAt(tx, ty);
+
+        if (tile === null) {
+          inputs[idx++] = -1;
         } else {
-          const tile = tiles[ty * size + tx];
           if (tile === '  ') inputs[idx++] = 0;
           else if (tile === '##') inputs[idx++] = -0.8;
           else if (tile === '[]') inputs[idx++] = 1.0;
@@ -56,21 +66,18 @@ export class NeuralEngine {
       }
     }
     
-    // Group B: Hero Stats (8 neurons) - Normalized
     const sortedHeroes = [...state.heroes].sort((a, b) => a.id - b.id);
-    sortedHeroes.forEach(h => {
-      inputs[idx++] = h.life / 100;
-      inputs[idx++] = Math.min(1, h.gold / 1000);
-    });
+    sortedHeroes.forEach(h => { inputs[idx++] = h.life / 100; });
+    sortedHeroes.forEach(h => { inputs[idx++] = Math.min(1, h.gold / 1000); });
+    sortedHeroes.forEach(h => { inputs[idx++] = Math.min(1, h.mineCount / 10); });
 
-    // Group C: Long-Range Radar (8 neurons)
-    const findNearest = (check: (tile: string, pos: Pos) => boolean) => {
+    const findNearest = (check: (tile: string) => boolean) => {
         let bestDist = Infinity;
         let bestPos: Pos | null = null;
         for (let y = 0; y < size; y++) {
             for (let x = 0; x < size; x++) {
-                const tile = tiles[y * size + x];
-                if (check(tile, {x, y})) {
+                const tile = getTileAt(x, y);
+                if (tile && check(tile)) {
                     const d = this.getDistance(hero.pos, {x, y});
                     if (d < bestDist && d > 0) {
                         bestDist = d;
@@ -80,16 +87,15 @@ export class NeuralEngine {
             }
         }
         if (!bestPos) return [0, 0];
-        return [
-            (bestPos.x - hero.pos.x) / size,
-            (bestPos.y - hero.pos.y) / size
-        ];
+        return [(bestPos.x - hero.pos.x) / size, (bestPos.y - hero.pos.y) / size];
     };
 
+    // Radar features
     const nearestTavern = findNearest((t) => t === '[]');
     const nearestNeutralMine = findNearest((t) => t === '$-');
     const nearestEnemyMine = findNearest((t) => t.startsWith('$') && t !== '$-' && t !== `$${hero.id}`);
     const nearestEnemyHero = findNearest((t) => t.startsWith('@') && t !== `@${hero.id}`);
+    const nearestAnyTargetMine = findNearest((t) => t.startsWith('$') && t !== `$${hero.id}`);
 
     inputs[idx++] = nearestTavern[0];
     inputs[idx++] = nearestTavern[1];
@@ -99,37 +105,43 @@ export class NeuralEngine {
     inputs[idx++] = nearestEnemyMine[1];
     inputs[idx++] = nearestEnemyHero[0];
     inputs[idx++] = nearestEnemyHero[1];
-
-    // 2. Forward Pass: Hidden Layer
-    const hidden: number[] = new Array(this.HIDDEN_SIZE).fill(0);
-    const w1 = weights.w1;
-    for (let j = 0; j < this.HIDDEN_SIZE; j++) {
-      let sum = 0;
-      for (let i = 0; i < this.INPUT_SIZE; i++) {
-        sum += inputs[i] * (w1[i]?.[j] || 0);
-      }
-      hidden[j] = this.relu(sum);
-    }
-
-    // 3. Forward Pass: Output Layer
-    const outputs: number[] = new Array(this.OUTPUT_SIZE).fill(0);
-    const w2 = weights.w2;
-    const moveMap = [Move.North, Move.South, Move.East, Move.West, Move.Stay];
     
-    for (let j = 0; j < this.OUTPUT_SIZE; j++) {
-      let sum = 0;
-      for (let i = 0; i < this.HIDDEN_SIZE; i++) {
-        sum += hidden[i] * (w2[i]?.[j] || 0);
+    // Global Target Mine Radar (45, 46)
+    inputs[idx++] = nearestAnyTargetMine[0];
+    inputs[idx++] = nearestAnyTargetMine[1];
+
+    // Temporal context (47)
+    inputs[idx++] = state.turn / state.maxTurns;
+
+    // Forward Pass
+    let currentActivations = inputs;
+    const allLayerActivations: number[][] = [];
+
+    for (let layerIdx = 0; layerIdx < weights.matrices.length; layerIdx++) {
+      const matrix = weights.matrices[layerIdx];
+      if (!matrix || matrix.length === 0) continue;
+      
+      const nextSize = matrix[0].length;
+      const nextActivations = new Array(nextSize).fill(0);
+      
+      for (let j = 0; j < nextSize; j++) {
+        let sum = 0;
+        for (let i = 0; i < currentActivations.length; i++) {
+          sum += currentActivations[i] * (matrix[i][j] || 0);
+        }
+        nextActivations[j] = layerIdx === weights.matrices.length - 1 ? sum : this.relu(sum);
       }
-      outputs[j] = sum;
+      
+      currentActivations = nextActivations;
+      allLayerActivations.push([...currentActivations]);
     }
 
-    // Softmax-like selection (Argmax)
-    let maxIdx = 4; // Default Stay
+    const moveMap = [Move.North, Move.South, Move.East, Move.West, Move.Stay];
+    let maxIdx = 4;
     let maxVal = -Infinity;
     for (let i = 0; i < this.OUTPUT_SIZE; i++) {
-      if (outputs[i] > maxVal) {
-        maxVal = outputs[i];
+      if (currentActivations[i] > maxVal) {
+        maxVal = currentActivations[i];
         maxIdx = i;
       }
     }
@@ -137,14 +149,15 @@ export class NeuralEngine {
     const latency = performance.now() - startTime;
     return {
       move: moveMap[maxIdx],
-      reasoning: `Inference Cycle Complete. Latency: ${latency.toFixed(2)}ms. Hidden layer state: [${hidden.map(v => v.toFixed(1)).join(',')}]. Primary vector focus: ${moveMap[maxIdx]}.`,
-      confidence: Math.max(0.1, Math.min(0.99, maxVal / 2)),
+      reasoning: `Global Mine Radar engaged. Non-owned target tracking. Turn: ${state.turn}. Confidence: ${((maxVal + 2) / 4 * 100).toFixed(1)}%.`,
+      confidence: Math.max(0.1, Math.min(0.99, (maxVal + 2) / 4)),
       latency,
-      activations: hidden
+      activations: allLayerActivations,
+      inputs: [...inputs]
     };
   }
 
-  static createRandomWeights(): ModelWeights {
+  static createRandomWeights(hiddenSize: number, numHiddenLayers: number): ModelWeights {
     const xavier = (rows: number, cols: number) => {
         const std = Math.sqrt(2 / (rows + cols));
         return Array.from({ length: rows }, () => 
@@ -152,24 +165,30 @@ export class NeuralEngine {
         );
     };
 
-    return {
-      w1: xavier(this.INPUT_SIZE, this.HIDDEN_SIZE),
-      w2: xavier(this.HIDDEN_SIZE, this.OUTPUT_SIZE)
-    };
+    const matrices: number[][][] = [];
+    matrices.push(xavier(this.INPUT_SIZE, hiddenSize));
+    for (let i = 1; i < numHiddenLayers; i++) {
+      matrices.push(xavier(hiddenSize, hiddenSize));
+    }
+    matrices.push(xavier(hiddenSize, this.OUTPUT_SIZE));
+
+    return { matrices };
   }
 
   static mutateWeights(weights: ModelWeights, mutationRate: number, sigma: number = 0.1): ModelWeights {
-    const mutate = (matrix: number[][]) => 
+    const mutateMatrix = (matrix: number[][]) => 
       matrix.map(row => row.map(val => {
         if (Math.random() < mutationRate) {
-           return val + (Math.random() * 2 - 1) * sigma;
+           const u1 = Math.random();
+           const u2 = Math.random();
+           const z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+           return val + z * sigma;
         }
         return val;
       }));
 
     return {
-      w1: mutate(weights.w1),
-      w2: mutate(weights.w2)
+      matrices: weights.matrices.map(m => mutateMatrix(m))
     };
   }
 }

@@ -12,6 +12,27 @@ export enum Move {
   West = 'West'
 }
 
+export type SynthesisLog = {
+  generation: number;
+  mutationMagnitude: number;
+  deltas: {
+    gold: number;
+    mines: number;
+    survival: number;
+    combat: number;
+  };
+  totalFitnessDelta: number;
+  timestamp: number;
+};
+
+export type TestResult = {
+  name: string;
+  passed: boolean;
+  expected: string;
+  actual: string;
+  details?: string;
+};
+
 export type StrategyPriorities = {
   survival: number; // 0-100
   greed: number;    // 0-100
@@ -31,12 +52,12 @@ export type AIDecision = {
   prioritiesUsed?: StrategyPriorities;
   dilemma?: StrategicDilemma;
   latency?: number;
-  activations?: number[]; // Values of the hidden layer for visualization
+  activations?: number[][] | undefined; // Layer-by-layer activations
+  inputs?: number[]; // Raw input vector (46 units)
 };
 
 export type ModelWeights = {
-  w1: number[][]; // 41x16 (25 vision + 8 stats + 8 long-range radar)
-  w2: number[][]; // 16x5
+  matrices: number[][][]; // Array of weights between layers
 };
 
 export interface PopulationMember {
@@ -46,7 +67,27 @@ export interface PopulationMember {
   status: string;
   weights: ModelWeights;
   generation: number;
+  config?: {
+    hiddenSize: number;
+    numLayers: number;
+  };
+  fitnessBreakdown?: {
+    gold: number;
+    mines: number;
+    survival: number;
+    combat: number;
+  };
 }
+
+export type SavedCandidate = {
+  version: string;
+  member: PopulationMember;
+  config: {
+    hiddenSize: number;
+    numLayers: number;
+  };
+  timestamp: number;
+};
 
 export type Hero = {
   id: number;

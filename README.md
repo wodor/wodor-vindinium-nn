@@ -1,20 +1,109 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
 
-# Run and deploy your AI Studio app
+# Vindinium CORE_PROX Lab Bridge
 
-This contains everything you need to run your app locally.
+This document provides the necessary protocols to connect a local Python agent or training script to the **Vindinium CORE_PROX** simulator.
 
-View your app in AI Studio: https://ai.studio/apps/drive/142LCzYFOFrnocCWD1uKXqEJm-vu14d6M
+## Core Operational Protocols
+The following rules are hard-coded into the CORE_PROX framework:
+1. **Full Telemetry Exposure**: The system must always visualize the complete input vector (48 units) clearly for debugging.
+2. **Policy Output Transparency**: Every decision must render its raw output logits (the action distribution) clearly in the inference stream.
+3. **Finite Lifecycle**: Arena matches are strictly limited to **300 turns** to ensure consistent fitness evaluation and prevent infinite loops.
 
-## Run Locally
+## 1. Python Agent Template
 
-**Prerequisites:**  Node.js
+Use this class structure to implement your local decision-making logic.
 
+```python
+import json
+import random
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+class CoreProxAgent:
+    def __init__(self, agent_id=1):
+        self.agent_id = agent_id
+        self.moves = ["North", "South", "East", "West", "Stay"]
+
+    def process_state(self, game_state_json):
+        """
+        Parses the GameState object from the CORE_PROX simulator.
+        Schema matches the 'GameState' type in types.ts
+        """
+        state = json.loads(game_state_json)
+        hero = next(h for h in state['heroes'] if h['id'] == self.agent_id)
+        board = state['board']
+        return hero, board
+
+    def compute_policy(self, hero, board):
+        """
+        Your logic goes here. 
+        Return one of: "North", "South", "East", "West", "Stay"
+        """
+        if hero['life'] < 30:
+            return "South" # Example: Flee or seek tavern
+        
+        return random.choice(self.moves)
+
+# Usage
+# agent = CoreProxAgent()
+# hero, board = agent.process_state(raw_json)
+# move = agent.compute_policy(hero, board)
+```
+
+## 2. Connecting Locally
+
+Since the simulator is client-side, the most efficient way to connect a local script is via a **Remote Procedure Call (RPC)** loop.
+
+### A. The Browser Proxy Pattern
+Inject this script into your browser console to create a bridge between the simulator and your local Python server:
+
+```javascript
+// Local Bridge Proxy (Execute in Console)
+const LOCAL_API = "http://localhost:5000/compute-move";
+
+window.fetchMoveFromLocal = async (gameState) => {
+    try {
+        const response = await fetch(LOCAL_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(gameState)
+        });
+        const data = await response.json();
+        return data.move; // e.g., "North"
+    } catch (e) {
+        console.error("Local Bridge Offline", e);
+        return "Stay";
+    }
+};
+```
+
+### B. Python Server (Flask)
+Run a simple Flask server on your local machine to receive state and return moves:
+
+```python
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)
+
+@app.route('/compute-move', methods=['POST'])
+def compute():
+    state = request.json
+    # Invoke your Python Agent here
+    # move = agent.compute_policy(state['heroes'][0], state['board'])
+    return jsonify({"move": "North"})
+
+if __name__ == '__main__':
+    app.run(port=5000)
+```
+
+## 3. Game State Schema Highlights
+
+- **Hero Object**: `id, pos {x, y}, life, gold, mineCount, spawnPos`
+- **Board Object**: `size (int), tiles (string)`
+- **Tile Encoding**: Every 2 characters in `tiles` represent one cell.
+  - `  `: Empty space
+  - `##`: Wall
+  - `[]`: Tavern
+  - `$-`: Neutral Mine
+  - `$n`: Mine owned by Hero `n`
+  - `@n`: Position of Hero `n`

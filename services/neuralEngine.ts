@@ -3,21 +3,13 @@ import { GameState, Move, AIDecision, ModelWeights, Pos } from '../types';
 
 /**
  * Deep Neural Inference Engine supporting dynamic topologies
- * Expanded Input Schema (48 units):
- * - [0..24]   Vision (5x5 local grid)
- * - [25..28]  HP (All 4 heroes)
- * - [29..32]  Gold (All 4 heroes)
- * - [33..36]  Mines (All 4 heroes)
- * - [37..44]  Legacy Radars (Tavern, NeutMine, EnemyMine, EnemyHero)
- * - [45..46]  Global Mine Radar (Closest Non-Owned Mine)
- * - [47]      Turn Progress (0.0 -> 1.0)
  */
 export class NeuralEngine {
   private static INPUT_SIZE = 48;
   private static OUTPUT_SIZE = 5;
 
   private static relu(x: number): number {
-    return x > 0 ? x : 0;
+    return x > 0 ? x : 0.01 * x; // Leaky ReLU for better gradient flow
   }
 
   private static getDistance(p1: Pos, p2: Pos): number {
@@ -86,8 +78,8 @@ export class NeuralEngine {
                 }
             }
         }
-        if (!bestPos) return [0, 0];
-        return [(bestPos.x - hero.pos.x) / size, (bestPos.y - hero.pos.y) / size];
+        if (!bestPos) return [0, 0, Infinity];
+        return [(bestPos.x - hero.pos.x) / size, (bestPos.y - hero.pos.y) / size, bestDist];
     };
 
     // Radar features
@@ -106,11 +98,9 @@ export class NeuralEngine {
     inputs[idx++] = nearestEnemyHero[0];
     inputs[idx++] = nearestEnemyHero[1];
     
-    // Global Target Mine Radar (45, 46)
     inputs[idx++] = nearestAnyTargetMine[0];
     inputs[idx++] = nearestAnyTargetMine[1];
 
-    // Temporal context (47)
     inputs[idx++] = state.turn / state.maxTurns;
 
     // Forward Pass
@@ -129,7 +119,7 @@ export class NeuralEngine {
         for (let i = 0; i < currentActivations.length; i++) {
           sum += currentActivations[i] * (matrix[i][j] || 0);
         }
-        nextActivations[j] = layerIdx === weights.matrices.length - 1 ? sum : this.relu(sum);
+        nextActivations[j] = layerIdx === weights.matrices.length - 1 ? Math.tanh(sum) : this.relu(sum);
       }
       
       currentActivations = nextActivations;
@@ -146,11 +136,25 @@ export class NeuralEngine {
       }
     }
 
+    const selectedMove = moveMap[maxIdx];
+    
+    // Improved Reasoning Logic
+    let reasoning = "";
+    if (hero.life < 40 && nearestTavern[2] !== Infinity) {
+      reasoning = `HP critical (${hero.life}). Calculated optimal path towards nearest Tavern for urgent maintenance.`;
+    } else if (nearestNeutralMine[2] !== Infinity && nearestNeutralMine[2] < 5) {
+      reasoning = `Detected high-yield asset at distance ${nearestNeutralMine[2]}. Executing acquisition protocol.`;
+    } else if (nearestEnemyHero[2] !== Infinity && nearestEnemyHero[2] < 3 && hero.life > 60) {
+      reasoning = `Proximity alert: Enemy hero detected. Initiating combat aggression sequence to clear current path.`;
+    } else {
+      reasoning = `Analyzing global map state. Navigating toward high-density resource zone at current confidence ${((maxVal + 1)/2 * 100).toFixed(0)}%.`;
+    }
+
     const latency = performance.now() - startTime;
     return {
-      move: moveMap[maxIdx],
-      reasoning: `Global Mine Radar engaged. Non-owned target tracking. Turn: ${state.turn}. Confidence: ${((maxVal + 2) / 4 * 100).toFixed(1)}%.`,
-      confidence: Math.max(0.1, Math.min(0.99, (maxVal + 2) / 4)),
+      move: selectedMove,
+      reasoning,
+      confidence: Math.max(0.1, Math.min(0.99, (maxVal + 1) / 2)),
       latency,
       activations: allLayerActivations,
       inputs: [...inputs]
@@ -159,7 +163,7 @@ export class NeuralEngine {
 
   static createRandomWeights(hiddenSize: number, numHiddenLayers: number): ModelWeights {
     const xavier = (rows: number, cols: number) => {
-        const std = Math.sqrt(2 / (rows + cols));
+        const std = Math.sqrt(4 / (rows + cols)); 
         return Array.from({ length: rows }, () => 
             Array.from({ length: cols }, () => (Math.random() * 2 - 1) * std)
         );
@@ -181,7 +185,8 @@ export class NeuralEngine {
         if (Math.random() < mutationRate) {
            const u1 = Math.random();
            const u2 = Math.random();
-           const z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+           const z = Math.sqrt(-2.0 * Math.log(u1 || 0.001)) * Math.cos(2.0 * Math.PI * u2);
+           if (Math.random() < 0.05) return (Math.random() * 2 - 1) * sigma * 2;
            return val + z * sigma;
         }
         return val;

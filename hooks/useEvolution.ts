@@ -1,9 +1,11 @@
 
 import { useState, useCallback, useEffect } from 'react';
-// Add Move to the imports to fix 'Cannot find name Move' error on line 77.
 import { PopulationMember, SynthesisLog, GameState, Hero, Move } from '../types';
 import { NeuralEngine } from '../services/neuralEngine';
 import { GameEngine } from '../services/gameEngine';
+
+const AUTO_EVOLVE_DELAY_MS = 5;
+const AUTO_EVOLVE_HEADLESS_DELAY_MS = 5;
 
 const createInitialPopulation = (size: number, hiddenSize: number, layers: number, generation: number = 0): PopulationMember[] => 
   Array.from({ length: size }, (_, i) => ({
@@ -17,11 +19,47 @@ const createInitialPopulation = (size: number, hiddenSize: number, layers: numbe
     fitnessBreakdown: { gold: 0, mines: 0, survival: 0, combat: 0 }
   }));
 
+const calculateFitness = (goldScore: number, mineScore: number, survivalScore: number, combatScore: number): number => {
+  return (goldScore * 1.0) + (mineScore * 15.0) + (survivalScore * 0.5) + (combatScore * 4.0);
+};
+
+const calculateArchetypeScores = (archetype: number, baseChance: number, variance: number) => {
+  switch(archetype) {
+    case 0: 
+      return {
+        gold: Math.floor(70 * baseChance + Math.random() * 30 * variance),
+        mines: Math.floor(80 * baseChance + Math.random() * 20 * variance),
+        survival: Math.floor(25 * baseChance + Math.random() * 25 * variance),
+        combat: Math.floor(15 * baseChance + Math.random() * 15 * variance)
+      };
+    case 1: 
+      return {
+        gold: Math.floor(35 * baseChance + Math.random() * 25 * variance),
+        mines: Math.floor(25 * baseChance + Math.random() * 20 * variance),
+        survival: Math.floor(90 * baseChance + Math.random() * 10 * variance),
+        combat: Math.floor(15 * baseChance + Math.random() * 15 * variance)
+      };
+    case 2: 
+      return {
+        gold: Math.floor(25 * baseChance + Math.random() * 35 * variance),
+        mines: Math.floor(35 * baseChance + Math.random() * 30 * variance),
+        survival: Math.floor(35 * baseChance + Math.random() * 35 * variance),
+        combat: Math.floor(80 * baseChance + Math.random() * 20 * variance)
+      };
+    default: 
+      return {
+        gold: Math.floor(45 * baseChance + Math.random() * 30 * variance),
+        mines: Math.floor(45 * baseChance + Math.random() * 30 * variance),
+        survival: Math.floor(45 * baseChance + Math.random() * 30 * variance),
+        combat: Math.floor(45 * baseChance + Math.random() * 30 * variance)
+      };
+  }
+};
+
 export function useEvolution() {
   const [hiddenSize, setHiddenSize] = useState(16);
   const [numLayers, setNumLayers] = useState(1);
   const [headlessMode, setHeadlessMode] = useState(false);
-  // Default population to 4 to match the 4-hero requirement and improve efficiency
   const [population, setPopulation] = useState<PopulationMember[]>(() => createInitialPopulation(4, 16, 1));
   const [generation, setGeneration] = useState(0);
   const [history, setHistory] = useState<number[]>([]);
@@ -45,7 +83,6 @@ export function useEvolution() {
   const toggleHeadless = useCallback(() => {
     const nextState = !headlessMode;
     setHeadlessMode(nextState);
-    // Standardize population to 4 for actual game competition efficiency
     resetEvolution(hiddenSize, numLayers, 4);
   }, [headlessMode, hiddenSize, numLayers, resetEvolution]);
 
@@ -59,26 +96,20 @@ export function useEvolution() {
     let evaluatedPop: PopulationMember[];
 
     if (headlessMode) {
-      // HEADLESS COMPETITION: 4 Neural Agents compete on one board
       const results: {stats: Hero}[] = [];
       let state = GameEngine.createInitialState();
       
-      // Simulation Loop: Run full 300 turns
       while (!state.finished) {
-        // Hero indices in GameEngine are 1, 2, 3, 4
         const turnHeroId = (state.turn % 4) + 1;
-        // Map hero to population member (indices 0, 1, 2, 3)
         const member = population[turnHeroId - 1];
         
         if (member) {
           const decision = await NeuralEngine.getInference(state, turnHeroId, member.weights);
           state = GameEngine.applyMove(state, turnHeroId, decision.move);
         } else {
-          // Fallback for safety
           state = GameEngine.applyMove(state, turnHeroId, (Object.values(Move)[Math.floor(Math.random()*5)] as Move));
         }
         
-        // Performance yield to avoid browser lockup
         if (state.turn % 100 === 0) {
           await new Promise(resolve => setTimeout(resolve, 0));
         }
@@ -92,13 +123,12 @@ export function useEvolution() {
         const gameStats = results[idx]?.stats;
         if (!gameStats) return member;
 
-        // Normalized Fitness Calculation (same weights as heuristic mode for consistency)
         const goldScore = Math.min(100, Math.floor(gameStats.gold / 5)); 
         const mineScore = Math.min(100, gameStats.mineCount * 20);
         const survivalScore = gameStats.life;
-        const combatScore = Math.min(100, Math.floor(gameStats.gold / 10)); // Simplified combat proxy
+        const combatScore = Math.min(100, Math.floor(gameStats.gold / 10));
 
-        const fitness = (goldScore * 1.0) + (mineScore * 15.0) + (survivalScore * 0.5) + (combatScore * 4.0);
+        const fitness = calculateFitness(goldScore, mineScore, survivalScore, combatScore);
         
         return { 
           ...member, 
@@ -108,26 +138,19 @@ export function useEvolution() {
         };
       });
     } else {
-      // HEURISTIC MODE: Estimation for speed
-      await new Promise(resolve => setTimeout(resolve, 400));
       const progressFactor = Math.min(2.5, Math.pow(generation / 40, 0.7));
       
       evaluatedPop = population.map((member, idx) => {
         if (member.id === eliteMember.id && generation > 0) return { ...member, status: 'Elite_Specimen' };
         
         const archetype = idx % 4; 
-        let goldScore = 0, mineScore = 0, survivalScore = 0, combatScore = 0;
         const baseChance = 0.35 + (progressFactor * 0.25);
         const variance = 0.3 - (Math.min(0.2, generation / 1000));
         
-        switch(archetype) {
-          case 0: goldScore = Math.floor(70 * baseChance + Math.random() * 30 * variance); mineScore = Math.floor(80 * baseChance + Math.random() * 20 * variance); survivalScore = Math.floor(25 * baseChance + Math.random() * 25 * variance); combatScore = Math.floor(15 * baseChance + Math.random() * 15 * variance); break;
-          case 1: goldScore = Math.floor(35 * baseChance + Math.random() * 25 * variance); mineScore = Math.floor(25 * baseChance + Math.random() * 20 * variance); survivalScore = Math.floor(90 * baseChance + Math.random() * 10 * variance); combatScore = Math.floor(15 * baseChance + Math.random() * 15 * variance); break;
-          case 2: goldScore = Math.floor(25 * baseChance + Math.random() * 35 * variance); mineScore = Math.floor(35 * baseChance + Math.random() * 30 * variance); survivalScore = Math.floor(35 * baseChance + Math.random() * 35 * variance); combatScore = Math.floor(80 * baseChance + Math.random() * 20 * variance); break;
-          default: goldScore = Math.floor(45 * baseChance + Math.random() * 30 * variance); mineScore = Math.floor(45 * baseChance + Math.random() * 30 * variance); survivalScore = Math.floor(45 * baseChance + Math.random() * 30 * variance); combatScore = Math.floor(45 * baseChance + Math.random() * 30 * variance);
-        }
+        const { gold: goldScore, mines: mineScore, survival: survivalScore, combat: combatScore } = 
+          calculateArchetypeScores(archetype, baseChance, variance);
         
-        const fitness = (goldScore * 1.0) + (mineScore * 15.0) + (survivalScore * 0.5) + (combatScore * 4.0);
+        const fitness = calculateFitness(goldScore, mineScore, survivalScore, combatScore);
         return { ...member, fitness: Math.floor(fitness), status: 'Evaluated', fitnessBreakdown: { gold: goldScore, mines: mineScore, survival: survivalScore, combat: combatScore } };
       });
     }
@@ -152,21 +175,19 @@ export function useEvolution() {
     setSynthesisLogs(prev => [synthLog, ...prev].slice(0, 50));
     setHistory(prev => [...prev, topPerformer.fitness]);
     
-    // Create new generation
     const nextGen: PopulationMember[] = sortedResult.map((member, idx) => {
       const nextId = `G${generation + 1}-M${idx}`;
-      // Elites keep their fitness for display during the next simulation phase
       if (idx === 0) return { ...member, status: 'Elite_Specimen', id: nextId, generation: generation + 1 };
       
       return { 
         id: nextId, 
-        fitness: 0, // Reset for non-elites to show they are fresh
+        fitness: 0,
         accuracy: 0, 
         weights: NeuralEngine.mutateWeights(topPerformer.weights, 0.15, 0.08), 
         status: idx === 1 ? 'Direct_Heir' : 'Mutated_Child', 
         generation: generation + 1, 
         config: topPerformer.config,
-        fitnessBreakdown: member.fitnessBreakdown // Preserve breakdown visually until next update
+        fitnessBreakdown: member.fitnessBreakdown
       };
     });
 
@@ -178,8 +199,7 @@ export function useEvolution() {
   useEffect(() => {
     let timer: any;
     if (isAutoEvolving && !isTraining) {
-      // Faster loop for headless as it is more resource intensive and we want higher throughput
-      timer = setTimeout(runEvolutionStep, headlessMode ? 50 : 500);
+      timer = setTimeout(runEvolutionStep, headlessMode ? AUTO_EVOLVE_HEADLESS_DELAY_MS : AUTO_EVOLVE_DELAY_MS);
     }
     return () => clearTimeout(timer);
   }, [isAutoEvolving, isTraining, generation, runEvolutionStep, headlessMode]);

@@ -1,9 +1,8 @@
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { GameState, Move, GameLog, AIDecision, StrategyPriorities, PopulationMember } from '../types';
 import { GameEngine } from '../services/gameEngine';
 import { NeuralEngine } from '../services/neuralEngine';
-import { getAIDecision } from '../services/geminiService';
 
 export function useGameLoop(activeNeuralWeights: PopulationMember | null, priorities: StrategyPriorities) {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -12,7 +11,7 @@ export function useGameLoop(activeNeuralWeights: PopulationMember | null, priori
   const [lastDilemma, setLastDilemma] = useState<AIDecision['dilemma'] | null>(null);
   const [lastActivations, setLastActivations] = useState<number[][] | undefined>(undefined);
   const [loading, setLoading] = useState(false);
-  const [useNeuralAgent, setUseNeuralAgent] = useState(true);
+  const useNeuralAgent = true;
 
   useEffect(() => {
     setGameState(GameEngine.createInitialState());
@@ -38,6 +37,7 @@ export function useGameLoop(activeNeuralWeights: PopulationMember | null, priori
         if (useNeuralAgent && activeNeuralWeights) {
             decision = await NeuralEngine.getInference(currentState, heroId, activeNeuralWeights.weights);
         } else {
+            const { getAIDecision } = await import('../services/geminiService');
             decision = await getAIDecision(currentState, heroId, priorities, Math.random() > 0.85);
             if (decision.dilemma) { 
               setLastDilemma(decision.dilemma); 
@@ -63,16 +63,18 @@ export function useGameLoop(activeNeuralWeights: PopulationMember | null, priori
   }, [gameState, priorities, loading, useNeuralAgent, activeNeuralWeights]);
 
   useEffect(() => {
-    let interval: any;
+    let interval: ReturnType<typeof setTimeout> | undefined;
     if (isAutoPlaying && gameState && !gameState.finished && !loading && !lastDilemma && activeNeuralWeights) {
       interval = setTimeout(() => step(false), useNeuralAgent ? 60 : 600);
     }
-    return () => clearTimeout(interval);
+    return () => {
+      if (interval) clearTimeout(interval);
+    };
   }, [isAutoPlaying, gameState, loading, step, lastDilemma, useNeuralAgent, activeNeuralWeights]);
 
   return {
     gameState, setGameState, logs, setLogs, isAutoPlaying, setIsAutoPlaying, 
-    lastDilemma, setLastDilemma, lastActivations, loading, useNeuralAgent, setUseNeuralAgent,
+    lastDilemma, setLastDilemma, lastActivations, loading, useNeuralAgent,
     resetGame, step
   };
 }

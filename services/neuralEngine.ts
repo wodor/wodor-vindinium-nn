@@ -1,9 +1,6 @@
 
 import { GameState, Move, AIDecision, ModelWeights, Pos } from '../types';
 
-/**
- * Deep Neural Inference Engine supporting dynamic topologies
- */
 export class NeuralEngine {
   private static INPUT_SIZE = 48;
   private static OUTPUT_SIZE = 5;
@@ -33,7 +30,6 @@ export class NeuralEngine {
     const inputs: number[] = new Array(this.INPUT_SIZE).fill(0);
     let idx = 0;
     
-    // Vision (5x5)
     for (let dy = -2; dy <= 2; dy++) {
       for (let dx = -2; dx <= 2; dx++) {
         const tx = hero.pos.x + dx;
@@ -82,7 +78,6 @@ export class NeuralEngine {
         return [(bestPos.x - hero.pos.x) / size, (bestPos.y - hero.pos.y) / size, bestDist];
     };
 
-    // Radar features
     const nearestTavern = findNearest((t) => t === '[]');
     const nearestNeutralMine = findNearest((t) => t === '$-');
     const nearestEnemyMine = findNearest((t) => t.startsWith('$') && t !== '$-' && t !== `$${hero.id}`);
@@ -103,7 +98,6 @@ export class NeuralEngine {
 
     inputs[idx++] = state.turn / state.maxTurns;
 
-    // Forward Pass
     let currentActivations = inputs;
     const allLayerActivations: number[][] = [];
 
@@ -138,7 +132,6 @@ export class NeuralEngine {
 
     const selectedMove = moveMap[maxIdx];
     
-    // Improved Reasoning Logic
     let reasoning = "";
     if (hero.life < 40 && nearestTavern[2] !== Infinity) {
       reasoning = `HP critical (${hero.life}). Calculated optimal path towards nearest Tavern for urgent maintenance.`;

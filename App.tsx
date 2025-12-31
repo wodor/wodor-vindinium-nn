@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { StrategyPriorities, SavedCandidate } from './types';
 import { useEvolution } from './hooks/useEvolution';
 import { useGameLoop } from './hooks/useGameLoop';
@@ -18,7 +18,7 @@ const INITIAL_PRIORITIES: StrategyPriorities = {
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'arena' | 'lab' | 'neural'>('arena');
-  const [priorities] = useState<StrategyPriorities>(INITIAL_PRIORITIES);
+  const priorities = INITIAL_PRIORITIES;
 
   const {
     hiddenSize, numLayers, population, generation, history, isAutoEvolving, 
@@ -32,6 +32,8 @@ const App: React.FC = () => {
     lastDilemma, lastActivations, loading, useNeuralAgent,
     resetGame, step
   } = useGameLoop(activeNeuralWeights, priorities);
+
+  const hero1Logs = useMemo(() => logs.filter(l => l.heroId === 1), [logs]);
 
   const handleScenarioLoad = (state: any) => {
     setGameState(state);
@@ -57,7 +59,6 @@ const App: React.FC = () => {
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target?.result as string) as SavedCandidate;
-        // In a real app we'd push this into the population state via the hook
         alert("Imported: " + data.member.id + ". (Weights available in logs if active)");
       } catch (err) { alert("Invalid candidate file."); }
     };
@@ -156,7 +157,7 @@ const App: React.FC = () => {
                 <div className="flex-[2] bg-slate-900/60 border border-white/5 rounded-xl overflow-hidden flex flex-col shadow-lg shrink-0">
                    <div className="px-4 py-2 border-b border-white/5 bg-black/20 flex justify-between items-center">
                       <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Neural Loop</span>
-                      <span className="text-[7px] font-mono text-slate-600">INPUT -> POLICY</span>
+                      <span className="text-[7px] font-mono text-slate-600">INPUT → POLICY</span>
                    </div>
                    <div className="flex-1 p-3 flex items-center justify-center min-h-0">
                       <NeuralNetworkVis activations={lastActivations} />
@@ -168,7 +169,7 @@ const App: React.FC = () => {
                       <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Inference stream</span>
                    </div>
                    <div className="flex-1 overflow-y-auto p-4 no-scrollbar space-y-4">
-                      {logs.filter(l => l.heroId === 1).map((log, i) => (
+                      {hero1Logs.map((log, i) => (
                         <div key={i} className={`p-4 rounded-xl border ${log.isManual ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-black/40 border-white/5'} transition-all hover:bg-black/60 shadow-md`}>
                           <div className="flex justify-between items-center mb-4">
                             <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">TURN {log.turn}</span>

@@ -2,7 +2,22 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { GameState, Move, AIDecision, StrategyPriorities } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+let ai: GoogleGenAI | null = null;
+
+function getAI(): GoogleGenAI | null {
+  if (!ai) {
+    const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+    if (apiKey && apiKey !== 'undefined' && apiKey !== '') {
+      try {
+        ai = new GoogleGenAI({ apiKey });
+      } catch (error) {
+        console.warn('Failed to initialize Gemini AI:', error);
+        return null;
+      }
+    }
+  }
+  return ai;
+}
 
 export async function getAIDecision(
   state: GameState, 
@@ -13,7 +28,6 @@ export async function getAIDecision(
   const hero = state.heroes.find(h => h.id === heroId);
   if (!hero) throw new Error("Hero not found");
 
-  // Create a condensed map representation for the prompt
   const size = state.board.size;
   let mapVisual = "";
   for (let y = 0; y < size; y++) {
@@ -47,8 +61,17 @@ export async function getAIDecision(
     Return JSON strictly following the schema.
   `;
 
+  const aiInstance = getAI();
+  if (!aiInstance) {
+    return {
+      move: Move.Stay,
+      reasoning: "Gemini API key not configured. Using fallback strategy.",
+      confidence: 0
+    };
+  }
+
   try {
-    const response = await ai.models.generateContent({
+    const response = await aiInstance.models.generateContent({
       model: "gemini-3-pro-preview",
       contents: prompt,
       config: {
@@ -114,7 +137,6 @@ export async function getAIDecision(
     };
   } catch (error) {
     console.error("AI Decision failed:", error);
-    // Return a safe fallback to prevent app crash
     return { 
       move: Move.Stay, 
       reasoning: "The Strategic Oracle encountered an error. Remaining stationary to preserve life.", 

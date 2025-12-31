@@ -43,14 +43,12 @@ export class ScenarioInterpreter {
     updateTiles(size);
 
     lines.forEach(line => {
-      // Given a board of size X
       const sizeMatch = line.match(/board of size (\d+)/i);
       if (sizeMatch) {
         size = parseInt(sizeMatch[1]);
         updateTiles(size);
       }
 
-      // Hero X is at x,y with HP and Gold
       const heroMatch = line.match(/Hero (\d+) is at (\d+),(\d+)(?: with (\d+) HP)?(?: and (\d+) Gold)?/i);
       if (heroMatch) {
         const id = parseInt(heroMatch[1]);
@@ -61,14 +59,12 @@ export class ScenarioInterpreter {
         
         const h = heroes.find(h => h.id === id);
         if (h) {
-          // Reverted bug: x + 1 -> x
           h.pos = { x, y };
           h.life = hp;
           h.gold = gold;
         }
       }
 
-      // Objects: Tavern, Mine, Wall
       const objMatch = line.match(/a (Tavern|neutral Mine|Wall) is at (\d+),(\d+)/i);
       if (objMatch) {
         const type = objMatch[1].toLowerCase();
@@ -81,7 +77,6 @@ export class ScenarioInterpreter {
       }
     });
 
-    // Place heroes on tiles
     heroes.forEach(h => {
         const idx = h.pos.y * size + h.pos.x;
         if (idx < tiles.length) tiles[idx] = `@${h.id}`;

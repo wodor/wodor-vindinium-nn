@@ -10,24 +10,21 @@ const InferenceDataView: React.FC<InferenceDataViewProps> = ({ decision }) => {
   const inputs = decision.inputs || [];
   const outputs = decision.activations ? decision.activations[decision.activations.length - 1] : [];
   
-  // Grid 5x5 (Indices 0-24)
   const vision = inputs.slice(0, 25);
-  // HP (25-28), GLD (29-32), MINE (33-36)
   const hp = inputs.slice(25, 29);
   const gld = inputs.slice(29, 33);
   const mine = inputs.slice(33, 37);
-  // Targets (37-46), Prog (47)
   const tavern = inputs.slice(37, 39);
   const neutralMine = inputs.slice(39, 41);
   const hero = inputs.slice(43, 45);
   const progress = inputs[47] || 0;
 
   const getTileChar = (val: number) => {
-    if (val === -1) return 'X'; // Boundary
-    if (val === -0.8) return '#'; // Wall
-    if (val === 1.0) return 'T'; // Tavern
-    if (val === 0.7 || val === 0.9) return '$'; // Mine
-    if (val === -0.9) return 'H'; // Hero
+    if (val === -1) return 'X';
+    if (val === -0.8) return '#';
+    if (val === 1.0) return 'T';
+    if (val === 0.7 || val === 0.9) return '$';
+    if (val === -0.9) return 'H';
     return '.';
   };
 
@@ -37,7 +34,7 @@ const InferenceDataView: React.FC<InferenceDataViewProps> = ({ decision }) => {
     if (val === 1.0) return 'text-amber-500';
     if (val === 0.7 || val === 0.9) return 'text-emerald-500';
     if (val === -0.9) return 'text-red-500';
-    if (val === 0.3) return 'text-cyan-400'; // Self
+    if (val === 0.3) return 'text-cyan-400';
     return 'text-slate-800';
   };
 
@@ -93,7 +90,7 @@ const InferenceDataView: React.FC<InferenceDataViewProps> = ({ decision }) => {
         <div className="flex justify-between items-end h-8 gap-1.5 px-2">
           {['N', 'S', 'E', 'W', 'H'].map((label, i) => {
             const val = outputs[i] || 0;
-            const height = Math.max(10, (val + 1) * 50); // Normalized range
+            const height = Math.max(10, (val + 1) * 50);
             return (
               <div key={label} className="flex-1 flex flex-col items-center gap-1 group">
                 <div className="w-full bg-slate-800 rounded-t-sm relative flex items-end overflow-hidden" style={{ height: '24px' }}>

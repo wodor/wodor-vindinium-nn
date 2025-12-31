@@ -16,7 +16,6 @@ const Board: React.FC<BoardProps> = ({ state, isTurbo = false }) => {
     let label = '';
     let extraClasses = '';
 
-    // Safety check for undefined content strings
     if (!content) content = '  ';
 
     if (content === '##') {

@@ -8,7 +8,6 @@ interface NeuralNetworkVisProps {
 const NeuralNetworkVis: React.FC<NeuralNetworkVisProps> = ({ 
   activations = [] 
 }) => {
-  // Limit nodes to maintain high performance in dense view
   const nodesToRender = 10;
   const paddingY = 20;
   const rangeY = 60;
@@ -46,7 +45,6 @@ const NeuralNetworkVis: React.FC<NeuralNetworkVisProps> = ({
 
                 return layer.slice(0, nodesToRender).map((val, i) => {
                   const y1 = getNeuronY(i, currentCount);
-                  // Sparsity for visualization performance
                   const step = lIdx === activations.length - 1 ? 1 : 2;
                   return Array.from({ length: nextCount }).filter((_, idx) => idx % step === 0).map((_, j) => (
                     <line 

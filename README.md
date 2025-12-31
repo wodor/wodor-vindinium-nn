@@ -3,6 +3,67 @@
 
 This document provides the necessary protocols to connect a local Python agent or training script to the **Vindinium CORE_PROX** simulator.
 
+## Neural tab: how the score works
+
+The Neural tab is driven by the `useEvolution` hook and the `NeuralTraining` component:
+
+- **UI**: `components/NeuralTraining.tsx`
+  - **Average Population Fitness** chart uses `history[]`
+  - **Policy Fitness** displays `activeSpecimen.fitness`
+  - **Fitness Engine** panels display `activeSpecimen.fitnessBreakdown` (gold/mines/survival/combat)
+- **State + logic**: `hooks/useEvolution.ts`
+  - owns `population`, `generation`, `history`, `synthesisLogs`, `headlessMode`, `isAutoEvolving`
+
+### What happens on “Force Generation”
+
+`useEvolution.runEvolutionStep()` does:
+
+- **Evaluate current population**
+  - **Heuristic mode (default)**: assigns synthetic scores via `calculateArchetypeScores(...)`
+  - **Headless mode**: runs a full 300-turn simulation via `GameEngine` + `NeuralEngine` and derives scores from final hero stats
+- **Pick top performer**
+  - `topPerformer` = member with highest `fitness` in the evaluated population
+  - append `topPerformer.fitness` to `history[]` (this is what the chart plots)
+  - prepend a `SynthesisLog` entry (deltas vs previous generation’s elite)
+- **Create next generation**
+  - idx 0 becomes the new **Elite_Specimen** (keeps its evaluated `fitness`)
+  - others become **Direct_Heir / Mutated_Child** and get:
+    - new ids (`G{generation+1}-M{idx}`)
+    - new weights (`mutateWeights(topPerformer.weights, ...)`)
+    - `fitness: 0` (until next evaluation step)
+
+### Fitness formula (the number you see)
+
+Fitness is computed in `hooks/useEvolution.ts` with user-adjustable weights (top header). Default:
+
+- `fitness = (goldScore * 3.0) + (mineScore * 1.0) + (survivalScore * 1.0) + (combatScore * 1.0)`
+
+Per-mode component scores:
+
+- **Heuristic mode**
+  - scores are random-ish but biased by `generation` (“progressFactor”)
+  - you should see the chart drift upward over time (it’s synthetic)
+- **Headless mode**
+  - after the 300-turn match, per-hero stats become:
+    - `goldScore = min(100, floor(hero.gold / 5))`
+    - `mineScore = min(100, hero.mineCount * 20)`
+    - `survivalScore = hero.life`
+    - `combatScore = min(100, floor(hero.gold / 10))`
+
+### Why “score not rising” happens
+
+If you’re in **Headless Simulation**, a flat score is expected in many runs because:
+
+- **No learning signal**: there is no gradient training; only random mutation + selection. Improvement is not guaranteed and can plateau.
+- **Strong mine weight**: `mineScore * 5.0` still matters. If policies don’t reliably capture/hold mines, fitness stays low even if they “move around”.
+- **CombatScore is not combat**: in headless mode `combatScore` is derived from `gold`, so it doesn’t reward fighting; it mostly double-counts gold.
+- **Selection is tiny**: population is 4. With this small of a population, evolution is noisy and often stagnates.
+
+Practical debugging in the UI:
+
+- If **Gold/Mine** panels stay at `0`, policies are not taking/holding mines.
+- If **System Resilience** hovers near `25`, you’re seeing “move cost” erosion with little tavern usage or recovery.
+
 ## Core Operational Protocols
 The following rules are hard-coded into the CORE_PROX framework:
 1. **Full Telemetry Exposure**: The system must always visualize the complete input vector (48 units) clearly for debugging.

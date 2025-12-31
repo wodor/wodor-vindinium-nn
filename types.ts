@@ -77,6 +77,13 @@ export interface PopulationMember {
     survival: number;
     combat: number;
   };
+  displayFitness?: number;
+  displayBreakdown?: {
+    gold: number;
+    mines: number;
+    survival: number;
+    combat: number;
+  };
 }
 
 export type SavedCandidate = {

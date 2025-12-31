@@ -102,6 +102,7 @@ describe('useEvolution (integration)', () => {
       result.current.toggleHeadless();
     });
     expect(result.current.headlessMode).toBe(true);
+    expect(result.current.population).toHaveLength(16);
 
     await act(async () => {
       await result.current.runEvolutionStep();

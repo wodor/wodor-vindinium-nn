@@ -23,7 +23,7 @@ const App: React.FC = () => {
   const {
     hiddenSize, numLayers, population, generation, history, isAutoEvolving, 
     isTraining, synthesisLogs, selectedSpecimenId, activeNeuralWeights,
-    headlessMode, toggleHeadless,
+    headlessMode, toggleHeadless, fitnessWeights, updateFitnessWeights,
     setIsAutoEvolving, resetEvolution, runEvolutionStep, loadBest, selectSpecimen
   } = useEvolution();
 
@@ -89,6 +89,22 @@ const App: React.FC = () => {
                   {[1, 2, 3].map(l => <option key={l} value={l} className="bg-slate-900">{l}L</option>)}
                 </select>
               </div>
+            </div>
+            <div className="flex flex-col">
+               <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Weights</span>
+               <div className="flex gap-1">
+                 {(['gold','mine','survival','combat'] as const).map(key => (
+                   <input
+                     key={key}
+                     type="number"
+                     step="0.1"
+                     value={fitnessWeights[key]}
+                     onChange={(e) => updateFitnessWeights({ [key]: parseFloat(e.target.value) || 0 })}
+                     className="w-14 bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold text-cyan-400 outline-none"
+                     aria-label={`${key}-weight`}
+                   />
+                 ))}
+               </div>
             </div>
             <div className="flex flex-col">
                <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Evolve</span>
@@ -217,7 +233,8 @@ const App: React.FC = () => {
               onSelectSpecimen={selectSpecimen} 
               onConfigChange={resetEvolution} 
               onExportCandidate={handleExportCandidate} 
-              onImportCandidate={handleImportCandidate} 
+             onImportCandidate={handleImportCandidate}
+             fitnessWeights={fitnessWeights}
              />
            </div>
         )}

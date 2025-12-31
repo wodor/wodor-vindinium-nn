@@ -20,6 +20,7 @@ interface NeuralTrainingProps {
   onConfigChange: (size: number, layers: number) => void;
   onExportCandidate: (id: string) => void;
   onImportCandidate: (file: File) => void;
+  fitnessWeights: { gold: number; mine: number; survival: number; combat: number };
 }
 
 const NeuralTraining: React.FC<NeuralTrainingProps> = ({ 
@@ -39,7 +40,8 @@ const NeuralTraining: React.FC<NeuralTrainingProps> = ({
   onSelectSpecimen,
   onConfigChange,
   onExportCandidate,
-  onImportCandidate
+  onImportCandidate,
+  fitnessWeights
 }) => {
   const maxHistoryValue = Math.max(...history, 1);
   const activeSpecimen = population.find(p => p.id === selectedId) || population.sort((a, b) => b.fitness - a.fitness)[0];
@@ -111,7 +113,7 @@ const NeuralTraining: React.FC<NeuralTrainingProps> = ({
               <div className="p-2.5 bg-black/40 border border-white/10 rounded-xl">
                  <div className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-1">Neural Policy Weighting</div>
                  <div className="text-[10px] font-mono font-bold text-cyan-400/80">
-                   Σ (G*1.0 + M*15.0 + S*0.5 + A*4.0)
+                   Σ (G*{fitnessWeights.gold.toFixed(1)} + M*{fitnessWeights.mine.toFixed(1)} + S*{fitnessWeights.survival.toFixed(1)} + A*{fitnessWeights.combat.toFixed(1)})
                  </div>
               </div>
             </div>
@@ -120,12 +122,12 @@ const NeuralTraining: React.FC<NeuralTrainingProps> = ({
               {activeSpecimen?.fitnessBreakdown ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
-                    <MetricCard label="Gold Accumulation" value={activeSpecimen.fitnessBreakdown.gold} weight={1.0} color="amber" desc="Efficiency of gold collection per turn." />
-                    <MetricCard label="Asset Density" value={activeSpecimen.fitnessBreakdown.mines} weight={15.0} color="emerald" desc="Mine acquisition and retention rates." />
+                    <MetricCard label="Gold Accumulation" value={activeSpecimen.fitnessBreakdown.gold} weight={fitnessWeights.gold} color="amber" desc="Efficiency of gold collection per turn." />
+                    <MetricCard label="Asset Density" value={activeSpecimen.fitnessBreakdown.mines} weight={fitnessWeights.mine} color="emerald" desc="Mine acquisition and retention rates." />
                   </div>
                   <div className="space-y-4">
-                    <MetricCard label="System Resilience" value={activeSpecimen.fitnessBreakdown.survival} weight={0.5} color="blue" desc="HP management and Tavern frequency." />
-                    <MetricCard label="Combat Dominance" value={activeSpecimen.fitnessBreakdown.combat} weight={4.0} color="red" desc="Lethality and aggressive positioning." />
+                    <MetricCard label="System Resilience" value={activeSpecimen.fitnessBreakdown.survival} weight={fitnessWeights.survival} color="blue" desc="HP management and Tavern frequency." />
+                    <MetricCard label="Combat Dominance" value={activeSpecimen.fitnessBreakdown.combat} weight={fitnessWeights.combat} color="red" desc="Lethality and aggressive positioning." />
                   </div>
                 </div>
               ) : (
@@ -189,7 +191,7 @@ const NeuralTraining: React.FC<NeuralTrainingProps> = ({
           {population.map((member) => {
             const isElite = member.status === 'Elite_Specimen';
             const isActive = selectedId === member.id || (!selectedId && isElite);
-            const isEvaluating = isTraining && !isElite;
+            const displayFitness = member.displayFitness ?? member.fitness;
             
             return (
               <div 
@@ -206,11 +208,11 @@ const NeuralTraining: React.FC<NeuralTrainingProps> = ({
                   {isElite && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]"></span>}
                 </div>
                 <div>
-                  <div className={`text-[14px] font-mono font-black ${isEvaluating ? 'text-slate-600 animate-pulse' : 'text-white'}`}>
-                    {isEvaluating ? 'RUNNING' : member.fitness.toLocaleString()}
+                  <div className="text-[14px] font-mono font-black text-white">
+                    {displayFitness.toLocaleString()}
                   </div>
                   <div className="text-[7px] text-slate-600 font-black uppercase mt-0.5 tracking-tighter">
-                    {isEvaluating ? 'COMPETING' : member.status.replace('_', ' ')}
+                    {member.status.replace('_', ' ')}
                   </div>
                 </div>
               </div>

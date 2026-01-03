@@ -6,7 +6,7 @@ describe('useEvolution (integration)', () => {
   it('initializes population and defaults', () => {
     const { result } = renderHook(() => useEvolution());
 
-    expect(result.current.population).toHaveLength(4);
+    expect(result.current.population).toHaveLength(16);
     expect(result.current.generation).toBe(0);
     expect(result.current.hiddenSize).toBe(16);
     expect(result.current.numLayers).toBe(1);
@@ -38,7 +38,7 @@ describe('useEvolution (integration)', () => {
     expect(result.current.activeNeuralWeights).toBeNull();
   });
 
-  it('runEvolutionStep (heuristic) advances generation and produces next generation', async () => {
+  it('runEvolutionStep advances generation and produces next generation', async () => {
     const { result } = renderHook(() => useEvolution());
 
     act(() => {
@@ -50,14 +50,14 @@ describe('useEvolution (integration)', () => {
     });
 
     expect(result.current.generation).toBe(1);
-    expect(result.current.population).toHaveLength(4);
+    expect(result.current.population).toHaveLength(16);
     expect(result.current.population[0].status).toBe('Elite_Specimen');
     expect(result.current.population[1].status).toBe('Direct_Heir');
-    expect(result.current.population[2].status).toBe('Mutated_Child');
-    expect(result.current.population[3].status).toBe('Mutated_Child');
+    expect(result.current.population.filter(m => m.status === 'Mutated_Child').length).toBeGreaterThan(0);
+    expect(result.current.population.filter(m => m.status === 'Random_Injection').length).toBeGreaterThan(0);
     expect(result.current.synthesisLogs.length).toBeGreaterThan(0);
     expect(result.current.history.length).toBeGreaterThan(0);
-  });
+  }, 30000);
 
   it('runEvolutionStep mutates weights for non-elite members', async () => {
     const { result } = renderHook(() => useEvolution());
@@ -94,25 +94,6 @@ describe('useEvolution (integration)', () => {
     expect(differs).toBe(true);
   });
 
-  it('runEvolutionStep (headless) runs simulation and advances generation', async () => {
-    const { result } = renderHook(() => useEvolution());
-
-    act(() => {
-      result.current.setIsAutoEvolving(false);
-      result.current.toggleHeadless();
-    });
-    expect(result.current.headlessMode).toBe(true);
-    expect(result.current.population).toHaveLength(16);
-
-    await act(async () => {
-      await result.current.runEvolutionStep();
-    });
-
-    expect(result.current.generation).toBe(1);
-    expect(result.current.population[0].status).toBe('Elite_Specimen');
-    expect(result.current.synthesisLogs.length).toBeGreaterThan(0);
-    expect(result.current.history.length).toBeGreaterThan(0);
-  }, 10000);
 
   it('auto-evolution can be enabled and advances generation', async () => {
     const { result } = renderHook(() => useEvolution());

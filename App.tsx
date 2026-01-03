@@ -1,14 +1,16 @@
 
-import React, { useState, useMemo } from 'react';
-import { StrategyPriorities, SavedCandidate } from './types';
+import React, { useState, useMemo, useCallback } from 'react';
+import { StrategyPriorities, SavedCandidate, PopulationMember } from './types';
 import { useEvolution } from './hooks/useEvolution';
 import { useGameLoop } from './hooks/useGameLoop';
+import { loadNNFromLocalStorage, getAllSavedNNs } from './services/nnStorage';
 import Board from './components/Board';
 import HeroStats from './components/HeroStats';
 import StrategyLab from './components/StrategyLab';
 import NeuralTraining from './components/NeuralTraining';
 import NeuralNetworkVis from './components/NeuralNetworkVis';
 import InferenceDataView from './components/InferenceDataView';
+import SavedNNsPanel from './components/SavedNNsPanel';
 
 const INITIAL_PRIORITIES: StrategyPriorities = {
   survival: 50,
@@ -19,23 +21,80 @@ const INITIAL_PRIORITIES: StrategyPriorities = {
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'arena' | 'lab' | 'neural'>('arena');
   const priorities = INITIAL_PRIORITIES;
+  const [heroNeuralWeights, setHeroNeuralWeights] = useState<Map<number, PopulationMember | null>>(new Map());
+  const [heroSavedNNIds, setHeroSavedNNIds] = useState<Map<number, string>>(new Map());
 
   const {
     hiddenSize, numLayers, population, generation, history, isAutoEvolving, 
     isTraining, synthesisLogs, selectedSpecimenId, activeNeuralWeights,
-    headlessMode, toggleHeadless, fitnessWeights, updateFitnessWeights,
-    setIsAutoEvolving, resetEvolution, runEvolutionStep, loadBest, selectSpecimen
+    fitnessWeights, updateFitnessWeights,
+    setIsAutoEvolving, resetEvolution, runEvolutionStep, loadBest, selectSpecimen,
+    saveToLocalStorage, loadToArena, loadToNN, deleteFromLocalStorage, refreshSavedNNs,
+    evaluateAgainstRandoms, isEvaluating, evaluationResults, savedNNs, loadedNNInfo,
+    setHiddenSize, setNumLayers, toggleStar
   } = useEvolution();
 
   const {
     gameState, setGameState, logs, setLogs, isAutoPlaying, setIsAutoPlaying, 
     lastDilemma, lastActivations, loading, useNeuralAgent,
     resetGame, step
-  } = useGameLoop(activeNeuralWeights, priorities);
+  } = useGameLoop(heroNeuralWeights, priorities);
+
+  const loadNNToHero = useCallback((heroId: number, nnId: string) => {
+    const savedNN = savedNNs.find(nn => nn.id === nnId);
+    const saved = loadNNFromLocalStorage(nnId);
+    if (saved && savedNN) {
+      const loadedConfig = saved.config || { hiddenSize, numLayers };
+      const loadedGeneration = saved.generation || 0;
+      
+      const eliteMember: PopulationMember = {
+        ...saved,
+        id: `G${loadedGeneration}-M0`,
+        status: 'Elite_Specimen',
+        generation: loadedGeneration,
+        config: loadedConfig,
+        fitness: saved.fitness || saved.displayFitness || 0,
+        displayFitness: saved.displayFitness || saved.fitness || 0,
+        displayBreakdown: saved.displayBreakdown || saved.fitnessBreakdown
+      };
+      
+      setHeroNeuralWeights(prev => {
+        const newMap = new Map(prev);
+        newMap.set(heroId, eliteMember);
+        return newMap;
+      });
+      
+      setHeroSavedNNIds(prev => {
+        const newMap = new Map(prev);
+        newMap.set(heroId, nnId);
+        return newMap;
+      });
+      
+      if (heroId === 1) {
+        loadToArena(nnId);
+      }
+    }
+  }, [savedNNs, hiddenSize, numLayers, loadToArena]);
+
+  const hero1NN = heroNeuralWeights.get(1);
+  const displayedNNInfo = hero1NN ? loadedNNInfo : null;
+
+  const resetHeroToRandom = useCallback((heroId: number) => {
+    setHeroNeuralWeights(prev => {
+      const newMap = new Map(prev);
+      newMap.set(heroId, null);
+      return newMap;
+    });
+    setHeroSavedNNIds(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(heroId);
+      return newMap;
+    });
+  }, []);
 
   const hero1Logs = useMemo(() => logs.filter(l => l.heroId === 1), [logs]);
 
-  const handleScenarioLoad = (state: any) => {
+  const handleScenarioLoad = (state: any, gherkin?: string) => {
     setGameState(state);
     setLogs([]);
     setIsAutoPlaying(false);
@@ -82,11 +141,31 @@ const App: React.FC = () => {
             <div className="flex flex-col">
               <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Topology</span>
               <div className="flex gap-1">
-                <select value={hiddenSize} onChange={(e) => resetEvolution(parseInt(e.target.value), numLayers, population.length)} className="bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold text-cyan-400 outline-none">
-                  {[8, 16, 32, 64, 128].map(s => <option key={s} value={s} className="bg-slate-900">{s}U</option>)}
+                <select 
+                  value={hiddenSize} 
+                  onChange={(e) => {
+                    const newSize = parseInt(e.target.value);
+                    if (!isNaN(newSize) && newSize !== hiddenSize) {
+                      resetEvolution(newSize, numLayers, population.length);
+                    }
+                  }}
+                  disabled={isTraining}
+                  className="bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold text-cyan-400 outline-none cursor-pointer hover:bg-black/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {[8, 16, 32, 64, 128, 256].map(s => <option key={s} value={s} className="bg-slate-900">{s}U</option>)}
                 </select>
-                <select value={numLayers} onChange={(e) => resetEvolution(hiddenSize, parseInt(e.target.value), population.length)} className="bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold text-cyan-400 outline-none">
-                  {[1, 2, 3].map(l => <option key={l} value={l} className="bg-slate-900">{l}L</option>)}
+                <select 
+                  value={numLayers} 
+                  onChange={(e) => {
+                    const newLayers = parseInt(e.target.value);
+                    if (!isNaN(newLayers) && newLayers !== numLayers) {
+                      resetEvolution(hiddenSize, newLayers, population.length);
+                    }
+                  }}
+                  disabled={isTraining}
+                  className="bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold text-cyan-400 outline-none cursor-pointer hover:bg-black/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {[1, 2, 3, 4].map(l => <option key={l} value={l} className="bg-slate-900">{l}L</option>)}
                 </select>
               </div>
             </div>
@@ -118,18 +197,32 @@ const App: React.FC = () => {
               <span className="text-[10px] font-mono text-white font-black">{generation}</span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Active Specimen</span>
-              <span className="text-[9px] font-mono text-cyan-400 font-bold uppercase">{activeNeuralWeights?.id || 'NO_SIGNAL'}</span>
+              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Save NN</span>
+              <button 
+                onClick={() => {
+                  const bestMember = population.length > 0 
+                    ? [...population].sort((a, b) => (b.displayFitness ?? b.fitness) - (a.displayFitness ?? a.fitness))[0]
+                    : activeNeuralWeights;
+                  if (bestMember) {
+                    saveToLocalStorage(undefined, bestMember);
+                  }
+                }}
+                disabled={!activeNeuralWeights && population.length === 0}
+                className={`px-2 py-1 rounded text-[8px] font-black uppercase tracking-widest transition-all ${(!activeNeuralWeights && population.length === 0) ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20'}`}
+              >
+                Save
+              </button>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-4">
            {activeTab === 'arena' && (
              <div className="flex bg-white/5 p-1 rounded-lg border border-white/10 gap-1 mr-2">
-                <button onClick={() => step(true)} disabled={loading || gameState.finished || !activeNeuralWeights} className="px-3 py-1 bg-white text-slate-950 font-black rounded text-[8px] uppercase tracking-widest">Step</button>
-                <button onClick={() => setIsAutoPlaying(!isAutoPlaying)} disabled={gameState.finished || !activeNeuralWeights} className={`px-3 py-1 font-black rounded text-[8px] border transition-all uppercase tracking-widest ${isAutoPlaying ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-500'}`}>{isAutoPlaying ? 'Stop' : 'Run'}</button>
-                <button onClick={loadBest} className="px-3 py-1 bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 font-black rounded text-[8px] uppercase tracking-widest">Sync</button>
-                <button onClick={resetGame} className="px-3 py-1 bg-slate-800/50 border border-slate-700 text-slate-400 font-black rounded text-[8px] uppercase tracking-widest">Clear</button>
+                <button onClick={() => step(true)} disabled={loading || gameState.finished} className="px-3 py-1 bg-white text-slate-950 font-black rounded text-[8px] uppercase tracking-widest">Step</button>
+                <button onClick={() => setIsAutoPlaying(!isAutoPlaying)} disabled={gameState.finished} className={`px-3 py-1 font-black rounded text-[8px] border transition-all uppercase tracking-widest ${isAutoPlaying ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-500'}`}>{isAutoPlaying ? 'Stop' : 'Run'}</button>
+                <button onClick={() => {
+                  resetGame();
+                }} className="px-3 py-1 bg-slate-800/50 border border-slate-700 text-slate-400 font-black rounded text-[8px] uppercase tracking-widest">Clear</button>
              </div>
            )}
           <nav className="flex bg-black/40 p-1 rounded-lg border border-white/10 gap-1">
@@ -140,10 +233,52 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1 max-w-[1800px] mx-auto p-4 w-full flex flex-col gap-4 overflow-hidden h-full">
+      <main className="flex-1 max-w-[1800px] mx-auto p-4 w-full flex flex-col gap-4 overflow-hidden h-full relative">
         {activeTab === 'arena' && (
           <div className="flex flex-col gap-4 h-full overflow-hidden">
-            <HeroStats heroes={gameState.heroes} />
+            <div className="flex items-center justify-between bg-slate-900/60 border border-white/5 rounded-xl p-4">
+              <div className="flex flex-col">
+                <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Active Specimen</span>
+                <span className="text-[9px] font-mono text-cyan-400 font-bold uppercase">{heroNeuralWeights.get(1)?.id || 'NO_SIGNAL'}</span>
+              </div>
+            </div>
+            <HeroStats 
+              heroes={gameState.heroes} 
+              heroNeuralWeights={heroNeuralWeights} 
+              savedNNs={savedNNs} 
+              heroSavedNNIds={heroSavedNNIds} 
+              onResetHero={resetHeroToRandom}
+              population={population}
+              activeNeuralWeights={activeNeuralWeights}
+              onLoadNNToHero={loadNNToHero}
+              onLoadCurrentToHero={(heroId, member) => {
+                saveToLocalStorage(undefined, member);
+                const updatedNNs = getAllSavedNNs();
+                const newlySavedNN = updatedNNs
+                  .filter(nn => 
+                    nn.member.generation === member.generation && 
+                    nn.member.config?.hiddenSize === member.config?.hiddenSize &&
+                    nn.member.config?.numLayers === member.config?.numLayers &&
+                    Math.abs((nn.member.fitness || nn.member.displayFitness || 0) - (member.fitness || member.displayFitness || 0)) < 1
+                  )
+                  .sort((a, b) => b.timestamp - a.timestamp)[0];
+                
+                setHeroNeuralWeights(prev => {
+                  const newMap = new Map(prev);
+                  newMap.set(heroId, member);
+                  return newMap;
+                });
+                setHeroSavedNNIds(prev => {
+                  const newMap = new Map(prev);
+                  if (newlySavedNN) {
+                    newMap.set(heroId, newlySavedNN.id);
+                  } else {
+                    newMap.delete(heroId);
+                  }
+                  return newMap;
+                });
+              }}
+            />
             <div className="flex gap-4 flex-1 overflow-hidden">
               <div className="flex-[5] flex flex-col bg-slate-900/20 rounded-[1.5rem] border border-white/5 items-center justify-center relative shadow-inner overflow-hidden">
                 <Board state={gameState} isTurbo={useNeuralAgent && isAutoPlaying} />
@@ -161,11 +296,11 @@ const App: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4 mt-1 pt-2 border-t border-white/5">
                     <div className="flex flex-col">
                       <span className="text-[7px] font-black text-slate-600 uppercase tracking-[0.2em]">Fitness Score</span>
-                      <span className="text-xl font-mono text-cyan-400 font-black leading-none">{activeNeuralWeights?.fitness.toLocaleString() || '0'}</span>
+                      <span className="text-xl font-mono text-cyan-400 font-black leading-none">{hero1NN?.fitness.toLocaleString() || '0'}</span>
                     </div>
                     <div className="text-right flex flex-col items-end">
                        <span className="text-[7px] font-black text-slate-600 uppercase tracking-[0.2em]">Status</span>
-                       <span className={`block text-[9px] font-bold uppercase px-2 py-0.5 rounded ${activeNeuralWeights ? 'text-white' : 'text-slate-500'}`}>{activeNeuralWeights?.status.replace('_', ' ') || 'IDLE'}</span>
+                       <span className={`block text-[9px] font-bold uppercase px-2 py-0.5 rounded ${hero1NN ? 'text-white' : 'text-slate-500'}`}>{hero1NN?.status.replace('_', ' ') || 'IDLE'}</span>
                     </div>
                   </div>
                 </div>
@@ -211,7 +346,10 @@ const App: React.FC = () => {
         {activeTab === 'lab' && (
           <div className="max-w-4xl mx-auto w-full p-8 bg-slate-900/60 border border-white/5 rounded-[2rem] overflow-y-auto no-scrollbar shadow-2xl h-full">
             <header className="mb-6 border-b border-white/5 pb-4"><h2 className="text-2xl font-black italic tracking-tighter text-cyan-300 uppercase">Scenario_Forge</h2><p className="text-slate-500 text-xs mt-1 uppercase font-bold tracking-widest">Stress-test agent policies.</p></header>
-            <StrategyLab onLoadScenario={handleScenarioLoad} activeAgent={activeNeuralWeights} />
+            <StrategyLab 
+              onLoadScenario={handleScenarioLoad} 
+              activeAgent={activeNeuralWeights}
+            />
           </div>
         )}
         {activeTab === 'neural' && (
@@ -225,20 +363,29 @@ const App: React.FC = () => {
               selectedId={selectedSpecimenId} 
               hiddenSize={hiddenSize} 
               numLayers={numLayers} 
-              headlessMode={headlessMode}
-              onToggleHeadless={toggleHeadless}
               synthesisLogs={synthesisLogs} 
               onToggleAutoEvolve={() => setIsAutoEvolving(!isAutoEvolving)} 
-              onManualStep={runEvolutionStep} 
               onSelectSpecimen={selectSpecimen} 
               onConfigChange={resetEvolution} 
               onExportCandidate={handleExportCandidate} 
              onImportCandidate={handleImportCandidate}
              fitnessWeights={fitnessWeights}
+             onSaveToLocalStorage={saveToLocalStorage}
              />
            </div>
         )}
       </main>
+      <SavedNNsPanel
+        savedNNs={savedNNs}
+        activeAgent={activeNeuralWeights}
+        onLoadToArena={loadToArena}
+        onLoadToHero={loadNNToHero}
+        onDeleteFromLocalStorage={deleteFromLocalStorage}
+        onEvaluate={evaluateAgainstRandoms}
+        onToggleStar={toggleStar}
+        isEvaluating={isEvaluating}
+        evaluationResults={evaluationResults}
+      />
     </div>
   );
 };

@@ -343,5 +343,70 @@ describe('NeuralEngine', () => {
       expect(largeMaxChange).toBeGreaterThan(smallMaxChange);
     });
   });
+
+  describe('crossover', () => {
+    it('should combine weights from two parents', () => {
+      const parent1 = NeuralEngine.createRandomWeights(16, 1);
+      const parent2 = NeuralEngine.createRandomWeights(16, 1);
+      const child = NeuralEngine.crossover(parent1, parent2, 0.5);
+      
+      expect(child.matrices.length).toBe(parent1.matrices.length);
+      
+      let hasParent1Genes = false;
+      let hasParent2Genes = false;
+      
+      for (let i = 0; i < child.matrices.length; i++) {
+        expect(child.matrices[i].length).toBe(parent1.matrices[i].length);
+        
+        for (let j = 0; j < child.matrices[i].length; j++) {
+          expect(child.matrices[i][j].length).toBe(parent1.matrices[i][j].length);
+          
+          for (let k = 0; k < child.matrices[i][j].length; k++) {
+            if (child.matrices[i][j][k] === parent1.matrices[i][j][k]) hasParent1Genes = true;
+            if (child.matrices[i][j][k] === parent2.matrices[i][j][k]) hasParent2Genes = true;
+          }
+        }
+      }
+      
+      expect(hasParent1Genes || hasParent2Genes).toBe(true);
+    });
+
+    it('should respect crossover rate', () => {
+      const parent1 = NeuralEngine.createRandomWeights(16, 1);
+      const parent2 = NeuralEngine.createRandomWeights(16, 1);
+      
+      const child100 = NeuralEngine.crossover(parent1, parent2, 1.0);
+      const child0 = NeuralEngine.crossover(parent1, parent2, 0.0);
+      
+      let allFromParent2 = true;
+      let allFromParent1 = true;
+      
+      for (let i = 0; i < child100.matrices.length; i++) {
+        for (let j = 0; j < child100.matrices[i].length; j++) {
+          for (let k = 0; k < child100.matrices[i][j].length; k++) {
+            if (child100.matrices[i][j][k] !== parent2.matrices[i][j][k]) allFromParent2 = false;
+            if (child0.matrices[i][j][k] !== parent1.matrices[i][j][k]) allFromParent1 = false;
+          }
+        }
+      }
+      
+      expect(allFromParent2).toBe(true);
+      expect(allFromParent1).toBe(true);
+    });
+
+    it('should preserve network structure', () => {
+      const parent1 = NeuralEngine.createRandomWeights(32, 2);
+      const parent2 = NeuralEngine.createRandomWeights(32, 2);
+      const child = NeuralEngine.crossover(parent1, parent2, 0.5);
+      
+      expect(child.matrices.length).toBe(3);
+      expect(child.matrices[0].length).toBe(48);
+      expect(child.matrices[0][0].length).toBe(32);
+      expect(child.matrices[1].length).toBe(32);
+      expect(child.matrices[1][0].length).toBe(32);
+      expect(child.matrices[2].length).toBe(32);
+      expect(child.matrices[2][0].length).toBe(5);
+    });
+  });
 });
 

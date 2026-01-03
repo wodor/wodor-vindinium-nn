@@ -12,15 +12,16 @@ The Neural tab is driven by the `useEvolution` hook and the `NeuralTraining` com
   - **Policy Fitness** displays `activeSpecimen.fitness`
   - **Fitness Engine** panels display `activeSpecimen.fitnessBreakdown` (gold/mines/survival/combat)
 - **State + logic**: `hooks/useEvolution.ts`
-  - owns `population`, `generation`, `history`, `synthesisLogs`, `headlessMode`, `isAutoEvolving`
+  - owns `population`, `generation`, `history`, `synthesisLogs`, `isAutoEvolving`
 
 ### What happens on “Force Generation”
 
 `useEvolution.runEvolutionStep()` does:
 
 - **Evaluate current population**
-  - **Heuristic mode (default)**: assigns synthetic scores via `calculateArchetypeScores(...)`
-  - **Headless mode**: runs a full 300-turn simulation via `GameEngine` + `NeuralEngine` and derives scores from final hero stats
+  - Runs full 300-turn simulations via `GameEngine` + `NeuralEngine`
+  - Each member plays 2 simulations to average out randomness
+  - Derives scores from final hero stats (gold, mines, life)
 - **Pick top performer**
   - `topPerformer` = member with highest `fitness` in the evaluated population
   - append `topPerformer.fitness` to `history[]` (this is what the chart plots)
@@ -38,32 +39,27 @@ Fitness is computed in `hooks/useEvolution.ts` with user-adjustable weights (top
 
 - `fitness = (goldScore * 3.0) + (mineScore * 1.0) + (survivalScore * 1.0) + (combatScore * 1.0)`
 
-Per-mode component scores:
 
-- **Heuristic mode**
-  - scores are random-ish but biased by `generation` (“progressFactor”)
-  - you should see the chart drift upward over time (it’s synthetic)
-- **Headless mode**
-  - after the 300-turn match, per-hero stats become:
-    - `goldScore = min(100, floor(hero.gold / 5))`
-    - `mineScore = min(100, hero.mineCount * 20)`
-    - `survivalScore = hero.life`
-    - `combatScore = min(100, floor(hero.gold / 10))`
+Component scores after each 300-turn match:
 
-### Why “score not rising” happens
+- `goldScore = min(100, floor(hero.gold / 5))`
+- `mineScore = min(100, hero.mineCount * 20)`
+- `survivalScore = hero.life`
+- `combatScore = min(100, floor(hero.gold / 10))`
 
-If you’re in **Headless Simulation**, a flat score is expected in many runs because:
+### Why "score not rising" happens
 
-- **No learning signal**: there is no gradient training; only random mutation + selection. Improvement is not guaranteed and can plateau.
-- **Strong mine weight**: `mineScore * 5.0` still matters. If policies don’t reliably capture/hold mines, fitness stays low even if they “move around”.
-- **CombatScore is not combat**: in headless mode `combatScore` is derived from `gold`, so it doesn’t reward fighting; it mostly double-counts gold.
-- **Selection is tiny**: population is 4. With this small of a population, evolution is noisy and often stagnates.
+Flat scores are expected in many runs because:
+
+- **No gradient training**: Only random mutation + selection. Improvement is not guaranteed and can plateau.
+- **Local optima**: Networks can get stuck in suboptimal strategies (e.g., staying in corner)
+- **Sparse reward**: If policies don't capture/hold mines, fitness stays low
+- **Population size**: Population of 16 means noisy evolution with potential stagnation
 
 Practical debugging in the UI:
 
-- If **Gold/Mine** panels stay at `0`, policies are not taking/holding mines.
-- If **System Resilience** hovers near `25`, you’re seeing “move cost” erosion with little tavern usage or recovery.
-
+- If **Gold/Mine** panels stay at `0`, policies are not taking/holding mines
+- If **System Resilience** hovers near `25`, move cost erosion with little tavern usage
 ## Core Operational Protocols
 The following rules are hard-coded into the CORE_PROX framework:
 1. **Full Telemetry Exposure**: The system must always visualize the complete input vector (48 units) clearly for debugging.

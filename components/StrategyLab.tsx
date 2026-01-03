@@ -9,7 +9,10 @@ interface StrategyLabProps {
   activeAgent: PopulationMember | null;
 }
 
-const StrategyLab: React.FC<StrategyLabProps> = ({ onLoadScenario, activeAgent }) => {
+const StrategyLab: React.FC<StrategyLabProps> = ({ 
+  onLoadScenario, 
+  activeAgent
+}) => {
   const [text, setText] = useState(DEFAULT_SCENARIOS['Tavern Emergency']);
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [isRunningTests, setIsRunningTests] = useState(false);

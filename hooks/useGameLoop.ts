@@ -4,7 +4,7 @@ import { GameState, Move, GameLog, AIDecision, StrategyPriorities, PopulationMem
 import { GameEngine } from '../services/gameEngine';
 import { NeuralEngine } from '../services/neuralEngine';
 
-export function useGameLoop(activeNeuralWeights: PopulationMember | null, priorities: StrategyPriorities) {
+export function useGameLoop(heroNeuralWeights: Map<number, PopulationMember | null>, priorities: StrategyPriorities) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [logs, setLogs] = useState<GameLog[]>([]);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false); 
@@ -14,11 +14,11 @@ export function useGameLoop(activeNeuralWeights: PopulationMember | null, priori
   const useNeuralAgent = true;
 
   useEffect(() => {
-    setGameState(GameEngine.createInitialState());
+    setGameState(GameEngine.createInitialState(12, 1200));
   }, []);
 
   const resetGame = useCallback(() => {
-    setGameState(GameEngine.createInitialState());
+    setGameState(GameEngine.createInitialState(12, 1200));
     setLogs([]);
     setLastDilemma(null);
     setLastActivations(undefined);
@@ -26,28 +26,23 @@ export function useGameLoop(activeNeuralWeights: PopulationMember | null, priori
   }, []);
 
   const step = useCallback(async (isManual: boolean = false) => {
-    if (!gameState || gameState.finished || loading || !activeNeuralWeights) return;
+    if (!gameState || gameState.finished || loading) return;
     setLoading(true);
     try {
       let currentState = gameState;
       const heroId = (currentState.turn % 4) + 1;
       let decision: AIDecision;
       
-      if (heroId === 1) {
-        if (useNeuralAgent && activeNeuralWeights) {
-            decision = await NeuralEngine.getInference(currentState, heroId, activeNeuralWeights.weights);
-        } else {
-            const { getAIDecision } = await import('../services/geminiService');
-            decision = await getAIDecision(currentState, heroId, priorities, Math.random() > 0.85);
-            if (decision.dilemma) { 
-              setLastDilemma(decision.dilemma); 
-              setIsAutoPlaying(false); 
-            }
+      const heroNN = heroNeuralWeights.get(heroId);
+      
+      if (heroNN && useNeuralAgent) {
+        decision = await NeuralEngine.getInference(currentState, heroId, heroNN.weights);
+        if (heroId === 1) {
+          setLastActivations(decision.activations);
         }
-        setLastActivations(decision.activations);
       } else {
         const moves = [Move.North, Move.South, Move.East, Move.West, Move.Stay];
-        decision = { move: moves[Math.floor(Math.random() * moves.length)], reasoning: "NPC Logic active.", confidence: 0.5 };
+        decision = { move: moves[Math.floor(Math.random() * moves.length)], reasoning: "Random Logic active.", confidence: 0.5 };
       }
       
       const prevTurn = currentState.turn;
@@ -60,17 +55,25 @@ export function useGameLoop(activeNeuralWeights: PopulationMember | null, priori
     } finally { 
       setLoading(false); 
     }
-  }, [gameState, priorities, loading, useNeuralAgent, activeNeuralWeights]);
+  }, [gameState, priorities, loading, useNeuralAgent, heroNeuralWeights]);
 
   useEffect(() => {
-    let interval: ReturnType<typeof setTimeout> | undefined;
-    if (isAutoPlaying && gameState && !gameState.finished && !loading && !lastDilemma && activeNeuralWeights) {
-      interval = setTimeout(() => step(false), useNeuralAgent ? 60 : 600);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const runStep = async () => {
+      if (isAutoPlaying && gameState && !gameState.finished && !loading && !lastDilemma) {
+        await step(false);
+        if (isAutoPlaying && gameState && !gameState.finished && !loading && !lastDilemma) {
+          timeoutId = setTimeout(runStep, 1);
+        }
+      }
+    };
+    if (isAutoPlaying && gameState && !gameState.finished && !loading && !lastDilemma) {
+      timeoutId = setTimeout(runStep, 1);
     }
     return () => {
-      if (interval) clearTimeout(interval);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
     };
-  }, [isAutoPlaying, gameState, loading, step, lastDilemma, useNeuralAgent, activeNeuralWeights]);
+  }, [isAutoPlaying, gameState, loading, step, lastDilemma, useNeuralAgent]);
 
   return {
     gameState, setGameState, logs, setLogs, isAutoPlaying, setIsAutoPlaying, 

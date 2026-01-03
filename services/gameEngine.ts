@@ -11,7 +11,7 @@ export class GameEngine {
     return tilesArr;
   }
 
-  static createInitialState(size: number = 12): GameState {
+  static createInitialState(size: number = 12, maxTurns: number = 300): GameState {
     const heroes: Hero[] = [
       { id: 1, name: "Gemini Hero", pos: { x: 1, y: 1 }, spawnPos: { x: 1, y: 1 }, life: 100, gold: 0, mineCount: 0, crashed: false },
       { id: 2, name: "Bot 2", pos: { x: size - 2, y: 1 }, spawnPos: { x: size - 2, y: 1 }, life: 100, gold: 0, mineCount: 0, crashed: false },
@@ -42,7 +42,7 @@ export class GameEngine {
     return {
       id: "local-sim-" + Date.now(),
       turn: 0,
-      maxTurns: 300,
+      maxTurns,
       heroes,
       board: {
         size,

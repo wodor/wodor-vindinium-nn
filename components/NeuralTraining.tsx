@@ -12,15 +12,13 @@ interface NeuralTrainingProps {
   selectedId: string | null;
   hiddenSize: number;
   numLayers: number;
-  headlessMode: boolean;
-  onToggleHeadless: () => void;
   onToggleAutoEvolve: () => void;
-  onManualStep: () => void;
   onSelectSpecimen: (id: string) => void;
   onConfigChange: (size: number, layers: number) => void;
   onExportCandidate: (id: string) => void;
   onImportCandidate: (file: File) => void;
   fitnessWeights: { gold: number; mine: number; survival: number; combat: number };
+  onSaveToLocalStorage: (name?: string, member?: PopulationMember) => void;
 }
 
 const NeuralTraining: React.FC<NeuralTrainingProps> = ({ 
@@ -33,68 +31,61 @@ const NeuralTraining: React.FC<NeuralTrainingProps> = ({
   selectedId,
   hiddenSize,
   numLayers,
-  headlessMode,
-  onToggleHeadless,
   onToggleAutoEvolve,
-  onManualStep,
   onSelectSpecimen,
   onConfigChange,
   onExportCandidate,
   onImportCandidate,
-  fitnessWeights
+  fitnessWeights,
+  onSaveToLocalStorage
 }) => {
-  const maxHistoryValue = Math.max(...history, 1);
+  const minHistoryValue = 0;
+  const maxHistoryValue = 100;
+  const historyRange = 100;
   const activeSpecimen = population.find(p => p.id === selectedId) || population.sort((a, b) => b.fitness - a.fitness)[0];
 
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6 animate-in fade-in duration-700">
       
       {/* Top Section: Dashboard Header & Stats */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-        <div className="xl:col-span-1 bg-slate-900/40 p-6 rounded-3xl border border-white/5 backdrop-blur-sm shadow-xl flex flex-col justify-between h-[180px]">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`w-2.5 h-2.5 rounded-full ${isTraining ? 'bg-indigo-500 animate-pulse' : (isAutoEvolving ? 'bg-cyan-500 animate-pulse' : 'bg-slate-700')}`}></span>
-              <h2 className="text-2xl font-black italic tracking-tighter text-white uppercase">Evolver_V1</h2>
-            </div>
-            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest leading-relaxed mb-4">
-              {headlessMode ? 'Headless Simulation' : 'Heuristic Training'}
-            </p>
-          </div>
-          
-          <div className="space-y-2">
-             <button 
-              onClick={onToggleHeadless} 
-              className={`w-full py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${headlessMode ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400' : 'bg-slate-800 border-white/10 text-slate-400'}`}
-             >
-               {headlessMode ? 'Switch to Heuristic' : 'Enable Headless (4-Hero)'}
-             </button>
-             <button 
-                onClick={onManualStep} 
-                disabled={isTraining} 
-                className={`w-full py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${isTraining ? 'bg-slate-800 text-slate-500 border-white/5 cursor-not-allowed' : 'bg-white text-slate-950 hover:scale-[1.02]'}`}
-             >
-               {isTraining ? 'Processing...' : 'Force Generation'}
-             </button>
-          </div>
-        </div>
-
-        <div className="xl:col-span-3 bg-slate-900/40 p-6 rounded-3xl border border-white/5 backdrop-blur-sm shadow-xl overflow-hidden flex flex-col min-h-[160px]">
+      <div className="grid grid-cols-1 gap-6">
+        <div className="bg-slate-900/40 p-6 rounded-3xl border border-white/5 backdrop-blur-sm shadow-xl overflow-hidden flex flex-col min-h-[160px]">
             <div className="flex justify-between items-center mb-4">
                 <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Average Population Fitness</div>
                 <div className="text-[9px] font-mono text-cyan-400 font-bold">{history.length} EVALUATIONS</div>
             </div>
-            <div className="flex-1 flex items-end gap-[1px] h-24 px-1">
-              {history.map((val, i) => {
-                const h = (val / maxHistoryValue) * 100;
-                return (
-                  <div 
-                    key={i} 
-                    className={`flex-1 transition-all rounded-t-[1px] ${headlessMode ? 'bg-indigo-500/30 hover:bg-indigo-400' : 'bg-cyan-500/20 hover:bg-cyan-400'}`} 
-                    style={{ height: `${Math.max(4, h)}%` }}
-                  ></div>
-                );
-              })}
+            <div className="relative h-24">
+              <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <polyline
+                  fill="none"
+                  stroke="rgb(6 182 212)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity="0.9"
+                  vectorEffect="non-scaling-stroke"
+                  points={history.map((val, i) => {
+                    const x = (i / Math.max(1, history.length - 1)) * 100;
+                    const y = 100 - (((val - minHistoryValue) / historyRange) * 100);
+                    return `${x},${y}`;
+                  }).join(' ')}
+                />
+                <polyline
+                  fill="none"
+                  stroke="rgb(6 182 212)"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity="0.3"
+                  vectorEffect="non-scaling-stroke"
+                  points={history.map((val, i) => {
+                    const x = (i / Math.max(1, history.length - 1)) * 100;
+                    const y = 100 - (((val - minHistoryValue) / historyRange) * 100);
+                    return `${x},${y}`;
+                  }).join(' ')}
+                  filter="blur(2px)"
+                />
+              </svg>
             </div>
         </div>
       </div>

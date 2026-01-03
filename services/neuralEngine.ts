@@ -2,7 +2,7 @@
 import { GameState, Move, AIDecision, ModelWeights, Pos } from '../types';
 
 export class NeuralEngine {
-  private static INPUT_SIZE = 48;
+  private static INPUT_SIZE = 51;
   private static OUTPUT_SIZE = 5;
 
   private static relu(x: number): number {
@@ -97,6 +97,15 @@ export class NeuralEngine {
     inputs[idx++] = nearestAnyTargetMine[1];
 
     inputs[idx++] = state.turn / state.maxTurns;
+    
+    const healthUrgency = Math.max(0, (50 - hero.life) / 50);
+    inputs[idx++] = healthUrgency;
+    
+    const tavernDistance = nearestTavern[2] === Infinity ? 1.0 : Math.min(1.0, nearestTavern[2] / 20);
+    const healthTavernUrgency = healthUrgency * (1.0 - tavernDistance * 0.5);
+    inputs[idx++] = healthTavernUrgency;
+    
+    inputs[idx++] = hero.life < 40 ? 1.0 : 0.0;
 
     let currentActivations = inputs;
     const allLayerActivations: number[][] = [];
@@ -187,6 +196,20 @@ export class NeuralEngine {
 
     return {
       matrices: weights.matrices.map(m => mutateMatrix(m))
+    };
+  }
+
+  static crossover(parent1: ModelWeights, parent2: ModelWeights, crossoverRate: number = 0.5): ModelWeights {
+    const crossMatrix = (m1: number[][], m2: number[][]) => 
+      m1.map((row, i) => 
+        row.map((val, j) => {
+          if (Math.random() < crossoverRate) return m2[i][j];
+          return val;
+        })
+      );
+
+    return {
+      matrices: parent1.matrices.map((m, idx) => crossMatrix(m, parent2.matrices[idx]))
     };
   }
 }

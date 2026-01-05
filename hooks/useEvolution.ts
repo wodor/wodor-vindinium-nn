@@ -3,18 +3,20 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { PopulationMember, SynthesisLog, GameState, Hero, Move } from '../types';
 import { NeuralEngine } from '../services/neuralEngine';
 import { GameEngine } from '../services/gameEngine';
-import { saveNNToLocalStorage, loadNNFromLocalStorage, getAllSavedNNs, deleteNNFromLocalStorage, addEvaluationToNN, SavedNN, loadTopologyFromLocalStorage, saveTopologyToLocalStorage, loadFitnessWeightsFromLocalStorage, saveFitnessWeightsToLocalStorage, toggleStarNN } from '../services/nnStorage';
-
-type FitnessWeights = {
-  gold: number;
-  mine: number;
-  survival: number;
-  combat: number;
-};
+import { saveNNToLocalStorage, loadNNFromLocalStorage, getAllSavedNNs, deleteNNFromLocalStorage, addEvaluationToNN, SavedNN, loadTopologyFromLocalStorage, saveTopologyToLocalStorage, loadFitnessWeightsFromLocalStorage, saveFitnessWeightsToLocalStorage, toggleStarNN, loadSimulationParamsFromLocalStorage, saveSimulationParamsToLocalStorage, loadCompCostLimitFromLocalStorage, saveCompCostLimitToLocalStorage, loadTotalGamesAllTimeFromLocalStorage, saveTotalGamesAllTimeToLocalStorage } from '../services/nnStorage';
+import { 
+  FitnessWeights, 
+  HeroStats,
+  DEFAULT_FITNESS_WEIGHTS,
+  calculateFitness,
+  calculateFitnessFromGame,
+  initializeStats,
+  updateStatsAfterTurn
+} from '../services/fitness';
 
 const AUTO_EVOLVE_DELAY_MS = 0;
 const DEFAULT_POPULATION_SIZE = 20;
-const DEFAULT_WEIGHTS: FitnessWeights = { gold: 3, mine: 1, survival: 2, combat: 1 };
+const DEFAULT_WEIGHTS: FitnessWeights = DEFAULT_FITNESS_WEIGHTS;
 
 const createInitialPopulation = (size: number, hiddenSize: number, layers: number, generation: number = 0): PopulationMember[] => 
   Array.from({ length: size }, (_, i) => ({
@@ -25,22 +27,11 @@ const createInitialPopulation = (size: number, hiddenSize: number, layers: numbe
     weights: NeuralEngine.createRandomWeights(hiddenSize, layers),
     generation: generation,
     config: { hiddenSize, numLayers: layers },
-    fitnessBreakdown: { gold: 0, mines: 0, survival: 0, combat: 0 },
+    fitnessBreakdown: { gold: 0, mines: 0, survival: 0, exploration: 0 },
     displayFitness: 0,
-    displayBreakdown: { gold: 0, mines: 0, survival: 0, combat: 0 }
+    displayBreakdown: { gold: 0, mines: 0, survival: 0, exploration: 0 },
+    gamesPlayed: 0
   }));
-
-const calculateFitness = (
-  goldScore: number,
-  mineScore: number,
-  survivalScore: number,
-  combatScore: number,
-  weights: FitnessWeights
-): number => {
-  const weightedSum = (goldScore * weights.gold) + (mineScore * weights.mine) + (survivalScore * weights.survival) + (combatScore * weights.combat);
-  const weightSum = weights.gold + weights.mine + weights.survival + weights.combat;
-  return weightSum > 0 ? weightedSum / weightSum : 0;
-};
 
 export function useEvolution() {
   const [hiddenSize, setHiddenSize] = useState(() => {
@@ -58,7 +49,13 @@ export function useEvolution() {
     return createInitialPopulation(DEFAULT_POPULATION_SIZE, size, layers);
   });
   const [generation, setGeneration] = useState(0);
-  const [history, setHistory] = useState<number[]>([]);
+  const [history, setHistory] = useState<Array<{
+    fitness: number;
+    gold: number;
+    mines: number;
+    survival: number;
+    exploration: number;
+  }>>([]);
   const [isAutoEvolving, setIsAutoEvolving] = useState(true);
   const [isTraining, setIsTraining] = useState(false);
   const [synthesisLogs, setSynthesisLogs] = useState<SynthesisLog[]>([]);
@@ -68,12 +65,35 @@ export function useEvolution() {
     const saved = loadFitnessWeightsFromLocalStorage();
     return saved ?? DEFAULT_WEIGHTS;
   });
+  const [baseSimulations, setBaseSimulations] = useState(() => {
+    const saved = loadSimulationParamsFromLocalStorage();
+    return saved?.baseSimulations ?? 2;
+  });
+  const [eliteSimulations, setEliteSimulations] = useState(() => {
+    const saved = loadSimulationParamsFromLocalStorage();
+    return saved?.eliteSimulations ?? 4;
+  });
+  const [compCostLimit, setCompCostLimit] = useState(() => {
+    const saved = loadCompCostLimitFromLocalStorage();
+    return saved ?? 0;
+  });
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluationResults, setEvaluationResults] = useState<{ wins: number; avgFitness?: number } | null>(null);
   const [savedNNs, setSavedNNs] = useState<SavedNN[]>(() => getAllSavedNNs());
   const [loadedNNInfo, setLoadedNNInfo] = useState<SavedNN | null>(null);
   const hasInitialLoadRef = useRef(false);
   const manualResetRef = useRef(false);
+  const lastActiveSyncGenRef = useRef<number | null>(null);
+  const trainingStartTimeRef = useRef<number | null>(null);
+  const [totalGamesThisSession, setTotalGamesThisSession] = useState(0);
+  const [gamesPerSecond, setGamesPerSecond] = useState(0);
+  const [totalGamesAllTime, setTotalGamesAllTime] = useState(() => {
+    return loadTotalGamesAllTimeFromLocalStorage();
+  });
+  const [specimensPerSecond, setSpecimensPerSecond] = useState(0);
+  const [generationsPerSecond, setGenerationsPerSecond] = useState(0);
+  const [generationsThisSession, setGenerationsThisSession] = useState(0);
+  const [totalSpecimensEvaluated, setTotalSpecimensEvaluated] = useState(0);
 
   useEffect(() => {
     saveTopologyToLocalStorage({ hiddenSize, numLayers });
@@ -82,6 +102,14 @@ export function useEvolution() {
   useEffect(() => {
     saveFitnessWeightsToLocalStorage(fitnessWeights);
   }, [fitnessWeights]);
+
+  useEffect(() => {
+    saveSimulationParamsToLocalStorage(baseSimulations, eliteSimulations);
+  }, [baseSimulations, eliteSimulations]);
+
+  useEffect(() => {
+    saveCompCostLimitToLocalStorage(compCostLimit);
+  }, [compCostLimit]);
 
 
   const resetEvolution = useCallback((newSize: number, newLayers: number, newPopSize: number = DEFAULT_POPULATION_SIZE) => {
@@ -95,6 +123,13 @@ export function useEvolution() {
     setSelectedSpecimenId(null);
     setActiveNeuralWeights(null);
     setLoadedNNInfo(null);
+    setTotalGamesAllTime(0);
+    saveTotalGamesAllTimeToLocalStorage(0);
+    setTotalGamesThisSession(0);
+    setGenerationsThisSession(0);
+    setSpecimensPerSecond(0);
+    setGenerationsPerSecond(0);
+    setTotalSpecimensEvaluated(0);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         manualResetRef.current = false;
@@ -108,118 +143,49 @@ export function useEvolution() {
 
   const runEvolutionStep = useCallback(async () => {
     if (isTraining || population.length === 0) return;
+    
+    const currentCompCost = hiddenSize * numLayers * totalGamesAllTime;
+    if (compCostLimit > 0 && currentCompCost >= compCostLimit * 1000000) {
+      setIsAutoEvolving(false);
+      return;
+    }
+    
     setIsTraining(true);
+    
+    if (trainingStartTimeRef.current === null) {
+      trainingStartTimeRef.current = Date.now();
+    }
+    
+    const getTrainingGameLength = (gen: number): number => {
+      const MIN_TURNS = 150;
+      const MAX_TURNS = 600;
+      const MAX_GENERATION = 10000;
+      const progress = Math.min(1, gen / MAX_GENERATION);
+      return Math.floor(MIN_TURNS + (MAX_TURNS - MIN_TURNS) * progress);
+    };
     
     const sortedCurrent = [...population].sort((a, b) => b.fitness - a.fitness);
     const eliteMember = sortedCurrent[0];
     
     const HEROES_PER_GAME = 4;
-    const BASE_SIMULATIONS = 2;
-    const ELITE_SIMULATIONS = 4;
     const allFitnessScores: number[][] = Array.from({ length: population.length }, () => []);
     
-    const allBreakdowns: Array<{gold: number, mines: number, survival: number, combat: number}[]> = 
+    const allBreakdowns: Array<{gold: number, mines: number, survival: number, exploration: number}[]> = 
       Array.from({ length: population.length }, () => []);
+    
+    let totalGamesThisStep = 0;
     
     const sortedByPreviousFitness = [...population].sort((a, b) => (b.displayFitness ?? b.fitness) - (a.displayFitness ?? a.fitness));
     const topQuarter = Math.ceil(population.length / 4);
     const topPerformers = new Set(sortedByPreviousFitness.slice(0, topQuarter).map(m => m.id));
-    
-    type HeroStats = {
-      combat: { attacks: number; kills: number; minesStolen: number };
-      resilience: { healthRecovered: number; deaths: number };
-      mineAcquisitionTurns: number[];
-    };
-    
-    const initializeStats = (heroIds: number[]): Map<number, HeroStats> => {
-      const stats = new Map<number, HeroStats>();
-      heroIds.forEach(id => {
-        stats.set(id, {
-          combat: { attacks: 0, kills: 0, minesStolen: 0 },
-          resilience: { healthRecovered: 0, deaths: 0 },
-          mineAcquisitionTurns: []
-        });
-      });
-      return stats;
-    };
-    
-    const updateStatsAfterTurn = (
-      heroesBeforeMove: Hero[],
-      heroesAfterMove: Hero[],
-      mineCountsBeforeMove: Map<number, number>, // hero ID -> mine count before move
-      initialMineCounts: Map<number, number>, // hero ID -> initial mine count at game start
-      stats: Map<number, HeroStats>,
-      currentTurn: number
-    ) => {
-      heroesBeforeMove.forEach(heroBeforeMove => {
-        const heroAfterMove = heroesAfterMove.find(h => h.id === heroBeforeMove.id);
-        if (!heroAfterMove) return;
-        
-        const heroStats = stats.get(heroBeforeMove.id)!;
-        
-        if (heroBeforeMove.life > 0 && heroAfterMove.life <= 0) {
-          heroStats.resilience.deaths++;
-          const attacker = heroesAfterMove.find(h => 
-            h.id !== heroBeforeMove.id && 
-            h.pos.x === heroBeforeMove.pos.x && 
-            h.pos.y === heroBeforeMove.pos.y &&
-            heroesBeforeMove.find(before => before.id === h.id)?.life > 0
-          );
-          if (attacker) {
-            const attackerStats = stats.get(attacker.id);
-            if (attackerStats) {
-              attackerStats.combat.kills++;
-              attackerStats.combat.attacks++;
-            }
-          }
-        }
-        
-        if (heroAfterMove.life > heroBeforeMove.life && heroBeforeMove.life < 100) {
-          const healthGained = heroAfterMove.life - heroBeforeMove.life;
-          heroStats.resilience.healthRecovered += healthGained;
-        }
-        
-        const mineCountBefore = mineCountsBeforeMove.get(heroBeforeMove.id) || 0;
-        if (heroAfterMove.mineCount > mineCountBefore) {
-          const initialMines = initialMineCounts.get(heroBeforeMove.id) || 0;
-          const newMines = heroAfterMove.mineCount - mineCountBefore;
-          if (mineCountBefore <= initialMines) {
-            heroStats.combat.minesStolen += newMines;
-          }
-          for (let i = 0; i < newMines; i++) {
-            heroStats.mineAcquisitionTurns.push(currentTurn);
-          }
-        }
-      });
-    };
-    
-    const calculateFitnessFromGame = (
-      hero: Hero,
-      heroStats: HeroStats,
-      finalTurn: number
-    ): { fitness: number; breakdown: { gold: number; mines: number; survival: number; combat: number } } => {
-      const goldScore = Math.min(100, Math.floor(hero.gold / 2));
-      const turnsPerMine = hero.mineCount > 0 ? finalTurn / hero.mineCount : 0;
-      const mineScore = Math.max(0, Math.min(100, Math.floor(100 - (turnsPerMine / 2))));
-      const survivalScore = Math.max(0, Math.min(100, Math.floor((heroStats.resilience.healthRecovered / 10))));
-      const combatScore = Math.min(100, 
-        heroStats.combat.kills * 40 + 
-        heroStats.combat.attacks * 3 + 
-        heroStats.combat.minesStolen * 8
-      );
-      const fitness = calculateFitness(goldScore, mineScore, survivalScore, combatScore, fitnessWeights);
-      return {
-        fitness,
-        breakdown: { gold: goldScore, mines: mineScore, survival: survivalScore, combat: combatScore }
-      };
-    };
     
     const runSimulation = async (
       groupMembers: PopulationMember[],
       groupStartIndex: number,
       positionRotation: number
     ): Promise<void> => {
-      let state = GameEngine.createInitialState(12, 150);
+      const gameLength = getTrainingGameLength(generation);
+      let state = GameEngine.createInitialState(12, gameLength);
       const initialMineCounts = new Map(state.heroes.map(h => [h.id, h.mineCount]));
       const stats = initializeStats(state.heroes.map(h => h.id));
       
@@ -252,7 +218,8 @@ export function useEvolution() {
           mineCountsBeforeMove,
           initialMineCounts,
           stats,
-          state.turn
+          state.turn,
+          turnHeroId
         );
       }
       
@@ -261,7 +228,7 @@ export function useEvolution() {
         const popIdx = groupStartIndex + memberIdx;
         if (popIdx < population.length && memberIdx < groupMembers.length) {
           const heroStats = stats.get(hero.id)!;
-          const { fitness, breakdown } = calculateFitnessFromGame(hero, heroStats, state.turn);
+          const { fitness, breakdown } = calculateFitnessFromGame(hero, heroStats, state.heroes, fitnessWeights);
           allFitnessScores[popIdx].push(fitness);
           allBreakdowns[popIdx].push(breakdown);
         }
@@ -271,11 +238,12 @@ export function useEvolution() {
     for (let groupStart = 0; groupStart < population.length; groupStart += HEROES_PER_GAME) {
       const groupMembers = population.slice(groupStart, groupStart + HEROES_PER_GAME);
       const isEliteGroup = groupMembers.some(m => topPerformers.has(m.id));
-      const simCount = isEliteGroup ? ELITE_SIMULATIONS : BASE_SIMULATIONS;
+      const simCount = isEliteGroup ? eliteSimulations : baseSimulations;
       
       for (let sim = 0; sim < simCount; sim++) {
         const positionRotation = isEliteGroup ? sim % 4 : Math.floor(Math.random() * 4);
         await runSimulation(groupMembers, groupStart, positionRotation);
+        totalGamesThisStep++;
       }
     }
 
@@ -284,20 +252,38 @@ export function useEvolution() {
       if (fitnessValues.length === 0) return member;
       
       const avgFitness = fitnessValues.reduce((sum, f) => sum + f, 0) / fitnessValues.length;
+      const variance = fitnessValues.length > 1
+        ? fitnessValues.reduce((sum, f) => sum + Math.pow(f - avgFitness, 2), 0) / fitnessValues.length
+        : 0;
       const breakdowns = allBreakdowns[idx];
       const avgBreakdown = {
         gold: Math.floor(breakdowns.reduce((sum, b) => sum + b.gold, 0) / breakdowns.length),
         mines: Math.floor(breakdowns.reduce((sum, b) => sum + b.mines, 0) / breakdowns.length),
         survival: Math.floor(breakdowns.reduce((sum, b) => sum + b.survival, 0) / breakdowns.length),
-        combat: Math.floor(breakdowns.reduce((sum, b) => sum + b.combat, 0) / breakdowns.length)
+        exploration: Math.floor(breakdowns.reduce((sum, b) => sum + b.exploration, 0) / breakdowns.length)
       };
       
       const nextFitness = Math.floor(avgFitness);
       const prevDisplay = member.displayFitness ?? member.fitness ?? 0;
       const isNewBest = nextFitness > prevDisplay;
+      const smoothingFactor = 0.3;
+      const sameSimulationParams =
+        member.lastSimulationParams?.baseSimulations === baseSimulations &&
+        member.lastSimulationParams?.eliteSimulations === eliteSimulations;
+      const prevDisplayVariance = sameSimulationParams
+        ? (member.displayVariance ?? member.fitnessVariance ?? variance)
+        : variance;
+      const smoothedVariance = sameSimulationParams
+        ? prevDisplayVariance * (1 - smoothingFactor) + variance * smoothingFactor
+        : variance;
       return { 
         ...member, 
-        fitness: nextFitness, 
+        fitness: nextFitness,
+        fitnessMean: avgFitness,
+        fitnessVariance: variance,
+        displayVariance: smoothedVariance,
+        fitnessSamples: fitnessValues.length,
+        lastSimulationParams: { baseSimulations, eliteSimulations },
         status: 'Simulated', 
         fitnessBreakdown: avgBreakdown,
         displayFitness: Math.max(prevDisplay, nextFitness),
@@ -305,13 +291,17 @@ export function useEvolution() {
       };
     });
 
-    const displaySnapshot = new Map<string, { fitness: number; breakdown?: { gold: number; mines: number; survival: number; combat: number } }>(
+    const displaySnapshot = new Map<string, { fitness: number; breakdown?: { gold: number; mines: number; survival: number; exploration: number } }>(
       evaluatedPop.map(m => [m.id, { fitness: m.displayFitness ?? m.fitness, breakdown: m.displayBreakdown ?? m.fitnessBreakdown }])
     );
 
     const sortedResult = [...evaluatedPop].sort((a, b) => b.fitness - a.fitness);
     const topPerformer = sortedResult[0];
     const avgFitness = evaluatedPop.reduce((sum, m) => sum + m.fitness, 0) / evaluatedPop.length;
+    const avgGold = evaluatedPop.reduce((sum, m) => sum + (m.fitnessBreakdown?.gold || 0), 0) / evaluatedPop.length;
+    const avgMines = evaluatedPop.reduce((sum, m) => sum + (m.fitnessBreakdown?.mines || 0), 0) / evaluatedPop.length;
+    const avgSurvival = evaluatedPop.reduce((sum, m) => sum + (m.fitnessBreakdown?.survival || 0), 0) / evaluatedPop.length;
+    const avgExploration = evaluatedPop.reduce((sum, m) => sum + (m.fitnessBreakdown?.exploration || 0), 0) / evaluatedPop.length;
     const fitnessDelta = topPerformer.fitness - (eliteMember?.fitness || 0);
     
     const synthLog: SynthesisLog = {
@@ -321,7 +311,7 @@ export function useEvolution() {
         gold: topPerformer.fitnessBreakdown!.gold - (eliteMember.fitnessBreakdown?.gold || 0),
         mines: topPerformer.fitnessBreakdown!.mines - (eliteMember.fitnessBreakdown?.mines || 0),
         survival: topPerformer.fitnessBreakdown!.survival - (eliteMember.fitnessBreakdown?.survival || 0),
-        combat: topPerformer.fitnessBreakdown!.combat - (eliteMember.fitnessBreakdown?.combat || 0),
+        exploration: topPerformer.fitnessBreakdown!.exploration - (eliteMember.fitnessBreakdown?.exploration || 0),
       },
       totalFitnessDelta: fitnessDelta,
       timestamp: Date.now()
@@ -329,9 +319,16 @@ export function useEvolution() {
 
     setSynthesisLogs(prev => [synthLog, ...prev].slice(0, 50));
     
-    const recentHistory = [...history, avgFitness].slice(-10);
+    const newHistoryEntry = {
+      fitness: avgFitness,
+      gold: avgGold,
+      mines: avgMines,
+      survival: avgSurvival,
+      exploration: avgExploration
+    };
+    const recentHistory = [...history, newHistoryEntry].slice(-10);
     const progressRate = recentHistory.length >= 2 
-      ? (recentHistory[recentHistory.length - 1] - recentHistory[0]) / Math.max(1, recentHistory.length - 1)
+      ? (recentHistory[recentHistory.length - 1].fitness - recentHistory[0].fitness) / Math.max(1, recentHistory.length - 1)
       : 0;
     
     const baseMutationRate = progressRate < 0.5 ? 0.12 : 0.08;
@@ -340,7 +337,13 @@ export function useEvolution() {
     const adaptiveMutationRate = Math.max(0.05, baseMutationRate - (generation / 2000) * 0.05);
     const adaptiveSigma = Math.max(0.03, baseSigma - (generation / 2000) * 0.04);
     
-    setHistory(prev => [...prev, avgFitness]);
+    setHistory(prev => [...prev, {
+      fitness: avgFitness,
+      gold: avgGold,
+      mines: avgMines,
+      survival: avgSurvival,
+      exploration: avgExploration
+    }]);
     
     const eliteCount = Math.max(2, Math.floor(population.length * 0.25));
     const elites = sortedResult.slice(0, eliteCount);
@@ -368,9 +371,10 @@ export function useEvolution() {
         status: 'Mutated_Child',
         generation: generation + 1,
         config: parent1.config,
-        fitnessBreakdown: { gold: 0, mines: 0, survival: 0, combat: 0 },
+        fitnessBreakdown: { gold: 0, mines: 0, survival: 0, exploration: 0 },
         displayFitness: 0,
-        displayBreakdown: undefined
+        displayBreakdown: undefined,
+        gamesPlayed: 0
       });
     }
     
@@ -383,9 +387,10 @@ export function useEvolution() {
         status: 'Random_Injection',
         generation: generation + 1,
         config: { hiddenSize, numLayers },
-        fitnessBreakdown: { gold: 0, mines: 0, survival: 0, combat: 0 },
+        fitnessBreakdown: { gold: 0, mines: 0, survival: 0, exploration: 0 },
         displayFitness: 0,
-        displayBreakdown: undefined
+        displayBreakdown: undefined,
+        gamesPlayed: 0
       });
     }
     
@@ -398,21 +403,57 @@ export function useEvolution() {
           generation: generation + 1,
           fitness: member.fitness,
           displayFitness: Math.max(member.displayFitness ?? 0, member.fitness),
-          displayBreakdown: member.fitnessBreakdown
+          displayBreakdown: member.fitnessBreakdown,
+          displayVariance: member.displayVariance,
+          gamesPlayed: member.gamesPlayed ?? 0
         };
       }),
       ...children
     ];
 
-    setPopulation(nextGen);
+    const newTotalGames = totalGamesThisSession + totalGamesThisStep;
+    setTotalGamesThisSession(newTotalGames);
+    const newTotalGamesAllTime = totalGamesAllTime + totalGamesThisStep;
+    setTotalGamesAllTime(newTotalGamesAllTime);
+    saveTotalGamesAllTimeToLocalStorage(newTotalGamesAllTime);
+    
+    const specimensEvaluated = evaluatedPop.length;
+    const newTotalSpecimens = totalSpecimensEvaluated + specimensEvaluated;
+    setTotalSpecimensEvaluated(newTotalSpecimens);
+    const newGenerationsThisSession = generationsThisSession + 1;
+    setGenerationsThisSession(newGenerationsThisSession);
+    
+    if (trainingStartTimeRef.current !== null) {
+      const elapsedSeconds = (Date.now() - trainingStartTimeRef.current) / 1000;
+      if (elapsedSeconds > 0) {
+        setGamesPerSecond(newTotalGames / elapsedSeconds);
+        setSpecimensPerSecond(newTotalSpecimens / elapsedSeconds);
+        setGenerationsPerSecond(newGenerationsThisSession / elapsedSeconds);
+      }
+    }
+
+    const nextGenWithTrainingCost = nextGen.map(member => ({
+      ...member,
+      gamesPlayed: newTotalGamesAllTime
+    }));
+
+    setPopulation(nextGenWithTrainingCost);
     setGeneration(prev => prev + 1);
     setIsTraining(false);
-  }, [population, generation, isTraining, fitnessWeights, hiddenSize, numLayers]);
+  }, [population, generation, isTraining, fitnessWeights, hiddenSize, numLayers, baseSimulations, eliteSimulations, compCostLimit, totalGamesAllTime]);
 
   useEffect(() => {
     let timer: any;
     if (isAutoEvolving && !isTraining) {
       timer = setTimeout(runEvolutionStep, AUTO_EVOLVE_DELAY_MS);
+    } else if (!isAutoEvolving && !isTraining) {
+      trainingStartTimeRef.current = null;
+      setTotalGamesThisSession(0);
+      setGamesPerSecond(0);
+      setSpecimensPerSecond(0);
+      setGenerationsPerSecond(0);
+      setGenerationsThisSession(0);
+      setTotalSpecimensEvaluated(0);
     }
     return () => clearTimeout(timer);
   }, [isAutoEvolving, isTraining, generation, runEvolutionStep]);
@@ -462,7 +503,8 @@ export function useEvolution() {
         config: loadedConfig,
         fitness: saved.fitness || saved.displayFitness || 0,
         displayFitness: saved.displayFitness || saved.fitness || 0,
-        displayBreakdown: saved.displayBreakdown || saved.fitnessBreakdown
+        displayBreakdown: saved.displayBreakdown || saved.fitnessBreakdown,
+        gamesPlayed: saved.gamesPlayed ?? 0
       };
       
       setActiveNeuralWeights(eliteMember);
@@ -491,7 +533,8 @@ export function useEvolution() {
         config: loadedConfig,
         fitness: saved.fitness || saved.displayFitness || 0,
         displayFitness: saved.displayFitness || saved.fitness || 0,
-        displayBreakdown: saved.displayBreakdown || saved.fitnessBreakdown
+        displayBreakdown: saved.displayBreakdown || saved.fitnessBreakdown,
+        gamesPlayed: saved.gamesPlayed ?? 0
       };
       
       const newPopulationSize = population.length || DEFAULT_POPULATION_SIZE;
@@ -511,9 +554,10 @@ export function useEvolution() {
           status: 'Mutated_Child',
           generation: loadedGeneration,
           config: loadedConfig,
-          fitnessBreakdown: { gold: 0, mines: 0, survival: 0, combat: 0 },
+          fitnessBreakdown: { gold: 0, mines: 0, survival: 0, exploration: 0 },
           displayFitness: 0,
-          displayBreakdown: undefined
+          displayBreakdown: undefined,
+          gamesPlayed: 0
         });
       }
       
@@ -526,13 +570,22 @@ export function useEvolution() {
           status: 'Random_Injection',
           generation: loadedGeneration,
           config: loadedConfig,
-          fitnessBreakdown: { gold: 0, mines: 0, survival: 0, combat: 0 },
+          fitnessBreakdown: { gold: 0, mines: 0, survival: 0, exploration: 0 },
           displayFitness: 0,
-          displayBreakdown: undefined
+          displayBreakdown: undefined,
+          gamesPlayed: 0
         });
       }
       
       const seededPopulation = [eliteMember, ...children];
+      const loadedGamesPlayed = saved.gamesPlayed ?? 0;
+      const currentTotalGames = loadTotalGamesAllTimeFromLocalStorage();
+      const newTotalGamesAllTime = Math.max(currentTotalGames, loadedGamesPlayed);
+      setTotalGamesAllTime(newTotalGamesAllTime);
+      saveTotalGamesAllTimeToLocalStorage(newTotalGamesAllTime);
+      setTotalGamesThisSession(0);
+      setGenerationsThisSession(0);
+      setTotalSpecimensEvaluated(0);
       
       setPopulation(seededPopulation);
       setGeneration(loadedGeneration);
@@ -555,6 +608,39 @@ export function useEvolution() {
       }
     }
   }, [population.length, generation, isTraining, loadToNN]);
+
+  useEffect(() => {
+    if (!activeNeuralWeights || population.length === 0 || isTraining) return;
+    if (lastActiveSyncGenRef.current === generation) return;
+
+    const oldGen = activeNeuralWeights.generation;
+    const currentGen = generation;
+    if (currentGen <= oldGen) return;
+
+    const oldIdParts = activeNeuralWeights.id.match(/G(\d+)-M(\d+)/);
+    if (!oldIdParts) return;
+
+    const oldMemberIndex = parseInt(oldIdParts[2]);
+    if (Number.isNaN(oldMemberIndex)) return;
+
+    const wasElite = activeNeuralWeights.status === 'Elite_Specimen';
+    const wasDirectHeir = activeNeuralWeights.status === 'Direct_Heir';
+    if (!wasElite && !wasDirectHeir) return;
+
+    const sorted = [...population].sort((a, b) => b.fitness - a.fitness);
+    const eliteCount = Math.max(2, Math.floor(population.length * 0.25));
+    const elites = sorted.slice(0, eliteCount);
+    const correspondingSpecimen = oldMemberIndex < elites.length ? elites[oldMemberIndex] : undefined;
+    if (!correspondingSpecimen) return;
+    if (correspondingSpecimen.id === activeNeuralWeights.id) {
+      lastActiveSyncGenRef.current = generation;
+      return;
+    }
+
+    lastActiveSyncGenRef.current = generation;
+    setActiveNeuralWeights(correspondingSpecimen);
+    setSelectedSpecimenId(correspondingSpecimen.id);
+  }, [population, generation, activeNeuralWeights?.id, isTraining]);
 
   const deleteFromLocalStorage = useCallback((id: string) => {
     deleteNNFromLocalStorage(id);
@@ -632,7 +718,7 @@ export function useEvolution() {
       const bestMember = [...population].sort((a, b) => (b.displayFitness ?? b.fitness) - (a.displayFitness ?? a.fitness))[0];
       if (bestMember) {
         evaluateAgainstRandoms(bestMember, undefined, 100).then((result) => {
-          if (result && result.wins > 0) {
+          if (result && result.wins > 20) {
             saveToLocalStorage(undefined, bestMember);
           }
         });
@@ -648,21 +734,26 @@ export function useEvolution() {
           saveToLocalStorage(undefined, bestMember);
         }
       }
+      saveTotalGamesAllTimeToLocalStorage(totalGamesAllTime);
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [population, saveToLocalStorage]);
+  }, [population, saveToLocalStorage, totalGamesAllTime]);
+
+  const currentCompCost = hiddenSize * numLayers * totalGamesAllTime;
 
   return {
     hiddenSize, numLayers, population, generation, history, isAutoEvolving, 
     isTraining, synthesisLogs, selectedSpecimenId, activeNeuralWeights,
     fitnessWeights, updateFitnessWeights,
+    baseSimulations, eliteSimulations, setBaseSimulations, setEliteSimulations,
+    compCostLimit, setCompCostLimit, currentCompCost,
     setIsAutoEvolving, resetEvolution, runEvolutionStep, loadBest, selectSpecimen,
     saveToLocalStorage, loadToArena, loadToNN, deleteFromLocalStorage, refreshSavedNNs,
     evaluateAgainstRandoms, isEvaluating, evaluationResults, savedNNs, loadedNNInfo,
-    setHiddenSize, setNumLayers, toggleStar
+    setHiddenSize, setNumLayers, toggleStar, gamesPerSecond, specimensPerSecond, generationsPerSecond
   };
 }

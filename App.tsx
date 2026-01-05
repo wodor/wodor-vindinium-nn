@@ -23,15 +23,18 @@ const App: React.FC = () => {
   const priorities = INITIAL_PRIORITIES;
   const [heroNeuralWeights, setHeroNeuralWeights] = useState<Map<number, PopulationMember | null>>(new Map());
   const [heroSavedNNIds, setHeroSavedNNIds] = useState<Map<number, string>>(new Map());
+  const [isPanelExpanded, setIsPanelExpanded] = useState(true);
 
   const {
     hiddenSize, numLayers, population, generation, history, isAutoEvolving, 
     isTraining, synthesisLogs, selectedSpecimenId, activeNeuralWeights,
     fitnessWeights, updateFitnessWeights,
+    baseSimulations, eliteSimulations, setBaseSimulations, setEliteSimulations,
+    compCostLimit, setCompCostLimit, currentCompCost,
     setIsAutoEvolving, resetEvolution, runEvolutionStep, loadBest, selectSpecimen,
     saveToLocalStorage, loadToArena, loadToNN, deleteFromLocalStorage, refreshSavedNNs,
     evaluateAgainstRandoms, isEvaluating, evaluationResults, savedNNs, loadedNNInfo,
-    setHiddenSize, setNumLayers, toggleStar
+    setHiddenSize, setNumLayers, toggleStar, gamesPerSecond, specimensPerSecond, generationsPerSecond
   } = useEvolution();
 
   const {
@@ -172,17 +175,64 @@ const App: React.FC = () => {
             <div className="flex flex-col">
                <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Weights</span>
                <div className="flex gap-1">
-                 {(['gold','mine','survival','combat'] as const).map(key => (
-                   <input
-                     key={key}
-                     type="number"
-                     step="0.1"
-                     value={fitnessWeights[key]}
-                     onChange={(e) => updateFitnessWeights({ [key]: parseFloat(e.target.value) || 0 })}
-                     className="w-14 bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold text-cyan-400 outline-none"
-                     aria-label={`${key}-weight`}
-                   />
+                 {(['gold','mine','survival','exploration'] as const).map(key => (
+                   <div key={key} className="flex flex-col items-center">
+                     <span className="text-[6px] font-black text-slate-600 uppercase tracking-widest leading-none mb-0.5">{key[0].toUpperCase()}</span>
+                     <input
+                       type="number"
+                       step="0.1"
+                       value={fitnessWeights[key]}
+                       onChange={(e) => updateFitnessWeights({ [key]: parseFloat(e.target.value) || 0 })}
+                       className="w-14 bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold text-cyan-400 outline-none"
+                       aria-label={`${key}-weight`}
+                     />
+                   </div>
                  ))}
+               </div>
+            </div>
+            <div className="flex flex-col">
+               <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Simulations</span>
+               <div className="flex gap-1">
+                 <div className="flex flex-col items-center">
+                   <span className="text-[6px] font-black text-slate-600 uppercase tracking-widest leading-none mb-0.5">Base</span>
+                   <input
+                     type="number"
+                     step="1"
+                     min="1"
+                     value={baseSimulations}
+                     onChange={(e) => setBaseSimulations(Math.max(1, parseInt(e.target.value) || 1))}
+                     className="w-14 bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold text-cyan-400 outline-none"
+                     aria-label="base-simulations"
+                   />
+                 </div>
+                 <div className="flex flex-col items-center">
+                   <span className="text-[6px] font-black text-slate-600 uppercase tracking-widest leading-none mb-0.5">Elite</span>
+                   <input
+                     type="number"
+                     step="1"
+                     min="1"
+                     value={eliteSimulations}
+                     onChange={(e) => setEliteSimulations(Math.max(1, parseInt(e.target.value) || 1))}
+                     className="w-14 bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold text-cyan-400 outline-none"
+                     aria-label="elite-simulations"
+                   />
+                 </div>
+               </div>
+            </div>
+            <div className="flex flex-col">
+               <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Comp Cost Limit</span>
+               <div className="flex gap-1 items-center">
+                 <input
+                   type="number"
+                   step="0.1"
+                   min="0"
+                   value={compCostLimit}
+                   onChange={(e) => setCompCostLimit(Math.max(0, parseFloat(e.target.value) || 0))}
+                   disabled={isTraining}
+                   className="w-14 bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold text-cyan-400 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                   aria-label="comp-cost-limit"
+                 />
+                 <span className="text-[8px] font-mono text-slate-500 uppercase">Mcost</span>
                </div>
             </div>
             <div className="flex flex-col">
@@ -233,7 +283,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1 max-w-[1800px] mx-auto p-4 w-full flex flex-col gap-4 overflow-hidden h-full relative">
+      <main className={`flex-1 max-w-[1800px] mx-auto p-4 w-full flex flex-col gap-4 overflow-hidden h-full relative transition-all duration-300 ${isPanelExpanded ? 'pr-[400px]' : 'pr-16'}`}>
         {activeTab === 'arena' && (
           <div className="flex flex-col gap-4 h-full overflow-hidden">
             <div className="flex items-center justify-between bg-slate-900/60 border border-white/5 rounded-xl p-4">
@@ -296,11 +346,11 @@ const App: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4 mt-1 pt-2 border-t border-white/5">
                     <div className="flex flex-col">
                       <span className="text-[7px] font-black text-slate-600 uppercase tracking-[0.2em]">Fitness Score</span>
-                      <span className="text-xl font-mono text-cyan-400 font-black leading-none">{hero1NN?.fitness.toLocaleString() || '0'}</span>
+                      <span className="text-xl font-mono text-cyan-400 font-black leading-none">{(hero1NN?.fitness ?? 0).toLocaleString()}</span>
                     </div>
                     <div className="text-right flex flex-col items-end">
                        <span className="text-[7px] font-black text-slate-600 uppercase tracking-[0.2em]">Status</span>
-                       <span className={`block text-[9px] font-bold uppercase px-2 py-0.5 rounded ${hero1NN ? 'text-white' : 'text-slate-500'}`}>{hero1NN?.status.replace('_', ' ') || 'IDLE'}</span>
+                       <span className={`block text-[9px] font-bold uppercase px-2 py-0.5 rounded ${hero1NN ? 'text-white' : 'text-slate-500'}`}>{hero1NN?.status?.replace('_', ' ') || 'IDLE'}</span>
                     </div>
                   </div>
                 </div>
@@ -361,6 +411,7 @@ const App: React.FC = () => {
               isAutoEvolving={isAutoEvolving} 
               isTraining={isTraining} 
               selectedId={selectedSpecimenId} 
+              activeNeuralWeights={activeNeuralWeights}
               hiddenSize={hiddenSize} 
               numLayers={numLayers} 
               synthesisLogs={synthesisLogs} 
@@ -371,6 +422,9 @@ const App: React.FC = () => {
              onImportCandidate={handleImportCandidate}
              fitnessWeights={fitnessWeights}
              onSaveToLocalStorage={saveToLocalStorage}
+             gamesPerSecond={gamesPerSecond}
+             specimensPerSecond={specimensPerSecond}
+             generationsPerSecond={generationsPerSecond}
              />
            </div>
         )}
@@ -382,9 +436,15 @@ const App: React.FC = () => {
         onLoadToHero={loadNNToHero}
         onDeleteFromLocalStorage={deleteFromLocalStorage}
         onEvaluate={evaluateAgainstRandoms}
+        onLoadToTraining={(id) => {
+          loadToNN(id);
+          setActiveTab('neural');
+        }}
         onToggleStar={toggleStar}
         isEvaluating={isEvaluating}
         evaluationResults={evaluationResults}
+        isExpanded={isPanelExpanded}
+        onToggleExpanded={() => setIsPanelExpanded(!isPanelExpanded)}
       />
     </div>
   );

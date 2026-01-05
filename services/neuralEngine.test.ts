@@ -13,11 +13,11 @@ describe('NeuralEngine', () => {
   });
 
   describe('getInference', () => {
-    it('should construct input vector with 48 elements', async () => {
+    it('should construct input vector with 51 elements', async () => {
       const decision = await NeuralEngine.getInference(testState, 1, testWeights);
       
       expect(decision.inputs).toBeDefined();
-      expect(decision.inputs?.length).toBe(48);
+      expect(decision.inputs?.length).toBe(51);
     });
 
     it('should encode 5x5 vision grid (25 elements)', async () => {
@@ -139,8 +139,8 @@ describe('NeuralEngine', () => {
       
       expect(decision1.inputs).toBeDefined();
       expect(decision2.inputs).toBeDefined();
-      expect(decision1.inputs?.length).toBe(48);
-      expect(decision2.inputs?.length).toBe(48);
+      expect(decision1.inputs?.length).toBe(51);
+      expect(decision2.inputs?.length).toBe(51);
     });
   });
 
@@ -151,7 +151,7 @@ describe('NeuralEngine', () => {
       expect(weights.matrices).toBeDefined();
       expect(weights.matrices.length).toBe(3);
       
-      expect(weights.matrices[0].length).toBe(48);
+      expect(weights.matrices[0].length).toBe(51);
       expect(weights.matrices[0][0].length).toBe(16);
       
       expect(weights.matrices[1].length).toBe(16);
@@ -182,7 +182,7 @@ describe('NeuralEngine', () => {
       
       expect(weights.matrices.length).toBe(numLayers + 1);
       
-      expect(weights.matrices[0].length).toBe(48);
+      expect(weights.matrices[0].length).toBe(51);
       expect(weights.matrices[0][0].length).toBe(hiddenSize);
       
       for (let i = 1; i < numLayers; i++) {
@@ -400,7 +400,7 @@ describe('NeuralEngine', () => {
       const child = NeuralEngine.crossover(parent1, parent2, 0.5);
       
       expect(child.matrices.length).toBe(3);
-      expect(child.matrices[0].length).toBe(48);
+      expect(child.matrices[0].length).toBe(51);
       expect(child.matrices[0][0].length).toBe(32);
       expect(child.matrices[1].length).toBe(32);
       expect(child.matrices[1][0].length).toBe(32);

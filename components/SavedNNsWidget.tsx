@@ -2,6 +2,15 @@ import React from 'react';
 import { SavedNN } from '../services/nnStorage';
 import { PopulationMember } from '../types';
 
+const calculateTrainingCost = (member: PopulationMember): number => {
+  const games = member.gamesPlayed ?? 0;
+  const config = member.config;
+  if (!config) return 0;
+  const nodes = config.hiddenSize ?? 0;
+  const layers = config.numLayers ?? 0;
+  return games * nodes * layers;
+};
+
 interface SavedNNsWidgetProps {
   savedNNs: SavedNN[];
   activeAgent?: PopulationMember | null;
@@ -9,6 +18,7 @@ interface SavedNNsWidgetProps {
   onLoadToHero?: (heroId: number, id: string) => void;
   onDeleteFromLocalStorage: (id: string) => void;
   onEvaluate: (member: PopulationMember, nnId?: string) => void;
+  onLoadToTraining?: (id: string) => void;
   onToggleStar?: (id: string) => void;
   isEvaluating: boolean;
   evaluationResults: { wins: number; avgFitness?: number } | null;
@@ -23,6 +33,7 @@ const SavedNNsWidget: React.FC<SavedNNsWidgetProps> = ({
   onLoadToHero,
   onDeleteFromLocalStorage,
   onEvaluate,
+  onLoadToTraining,
   onToggleStar,
   isEvaluating,
   evaluationResults,
@@ -82,11 +93,24 @@ const SavedNNsWidget: React.FC<SavedNNsWidgetProps> = ({
                 ×
               </button>
             </div>
-            {nn.fitness !== undefined && (
+            {nn.fitness != null && (
               <div className="text-[13px] font-mono text-cyan-400 font-bold">
                 {nn.fitness.toLocaleString()} PTS
               </div>
             )}
+            {nn.member.gamesPlayed != null && nn.member.gamesPlayed > 0 && (
+              <div className="text-[10px] font-mono text-slate-500">
+                {nn.member.gamesPlayed.toLocaleString()} games
+              </div>
+            )}
+            {(() => {
+              const cost = calculateTrainingCost(nn.member);
+              return cost > 0 ? (
+                <div className="text-[10px] font-mono text-slate-400">
+                  {cost.toLocaleString()} cost (nodes×layers×games)
+                </div>
+              ) : null;
+            })()}
             {nn.fitnessWeights && (
               <div className="text-[10px] text-slate-400">
                 <div className="font-black text-slate-500 uppercase mb-0.5">Weights:</div>
@@ -94,7 +118,7 @@ const SavedNNsWidget: React.FC<SavedNNsWidgetProps> = ({
                   <span>G: {nn.fitnessWeights.gold}</span>
                   <span>M: {nn.fitnessWeights.mine}</span>
                   <span>S: {nn.fitnessWeights.survival}</span>
-                  <span>C: {nn.fitnessWeights.combat}</span>
+                  <span>E: {nn.fitnessWeights.exploration}</span>
                 </div>
               </div>
             )}
@@ -144,17 +168,27 @@ const SavedNNsWidget: React.FC<SavedNNsWidgetProps> = ({
                   </button>
                 </div>
               )}
-              <button
-                onClick={() => onEvaluate(nn.member, nn.id)}
-                disabled={isEvaluating}
-                className={`py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all w-full ${
-                  isEvaluating 
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
-                    : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
-                }`}
-              >
-                {isEvaluating ? '...' : 'Eval'}
-              </button>
+              <div className="grid grid-cols-2 gap-1">
+                <button
+                  onClick={() => onEvaluate(nn.member, nn.id)}
+                  disabled={isEvaluating}
+                  className={`py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                    isEvaluating 
+                      ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                      : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                  }`}
+                >
+                  {isEvaluating ? '...' : 'Eval'}
+                </button>
+                {onLoadToTraining && (
+                  <button
+                    onClick={() => onLoadToTraining(nn.id)}
+                    className="py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20"
+                  >
+                    Train
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         ))}

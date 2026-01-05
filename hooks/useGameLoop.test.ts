@@ -63,8 +63,14 @@ afterEach(() => {
 describe('useGameLoop (integration)', () => {
   const priorities: StrategyPriorities = { survival: 50, greed: 50, aggression: 50 };
 
+  const makeWeightsMap = (member: PopulationMember): Map<number, PopulationMember | null> => {
+    const map = new Map<number, PopulationMember | null>();
+    map.set(1, member);
+    return map;
+  };
+
   it('initializes game state', async () => {
-    const { result } = renderHook(() => useGameLoop(makeMember(), priorities));
+    const { result } = renderHook(() => useGameLoop(makeWeightsMap(makeMember()), priorities));
 
     await waitFor(() => {
       expect(result.current.gameState).not.toBeNull();
@@ -76,7 +82,7 @@ describe('useGameLoop (integration)', () => {
 
   it('step (neural hero) updates state, logs and activations', async () => {
     const member = makeMember();
-    const { result } = renderHook(() => useGameLoop(member, priorities));
+    const { result } = renderHook(() => useGameLoop(makeWeightsMap(member), priorities));
 
     await waitFor(() => {
       expect(result.current.gameState).not.toBeNull();
@@ -96,7 +102,7 @@ describe('useGameLoop (integration)', () => {
 
   it('step (NPC hero) still applies a move and logs it', async () => {
     const member = makeMember();
-    const { result } = renderHook(() => useGameLoop(member, priorities));
+    const { result } = renderHook(() => useGameLoop(makeWeightsMap(member), priorities));
 
     await waitFor(() => {
       expect(result.current.gameState).not.toBeNull();
@@ -120,7 +126,7 @@ describe('useGameLoop (integration)', () => {
 
   it('resetGame clears logs and resets state flags', async () => {
     const member = makeMember();
-    const { result } = renderHook(() => useGameLoop(member, priorities));
+    const { result } = renderHook(() => useGameLoop(makeWeightsMap(member), priorities));
 
     await waitFor(() => {
       expect(result.current.gameState).not.toBeNull();
@@ -148,7 +154,7 @@ describe('useGameLoop (integration)', () => {
 
   it('autoplay schedules step calls when enabled (ignoring dilemma handling)', async () => {
     const member = makeMember();
-    const { result } = renderHook(() => useGameLoop(member, priorities));
+    const { result } = renderHook(() => useGameLoop(makeWeightsMap(member), priorities));
 
     await waitFor(() => {
       expect(result.current.gameState).not.toBeNull();

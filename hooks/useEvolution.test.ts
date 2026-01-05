@@ -6,7 +6,7 @@ describe('useEvolution (integration)', () => {
   it('initializes population and defaults', () => {
     const { result } = renderHook(() => useEvolution());
 
-    expect(result.current.population).toHaveLength(16);
+    expect(result.current.population).toHaveLength(20);
     expect(result.current.generation).toBe(0);
     expect(result.current.hiddenSize).toBe(16);
     expect(result.current.numLayers).toBe(1);
@@ -50,7 +50,7 @@ describe('useEvolution (integration)', () => {
     });
 
     expect(result.current.generation).toBe(1);
-    expect(result.current.population).toHaveLength(16);
+    expect(result.current.population).toHaveLength(20);
     expect(result.current.population[0].status).toBe('Elite_Specimen');
     expect(result.current.population[1].status).toBe('Direct_Heir');
     expect(result.current.population.filter(m => m.status === 'Mutated_Child').length).toBeGreaterThan(0);

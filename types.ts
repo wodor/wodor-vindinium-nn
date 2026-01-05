@@ -19,7 +19,7 @@ export type SynthesisLog = {
     gold: number;
     mines: number;
     survival: number;
-    combat: number;
+    exploration: number;
   };
   totalFitnessDelta: number;
   timestamp: number;
@@ -75,15 +75,24 @@ export interface PopulationMember {
     gold: number;
     mines: number;
     survival: number;
-    combat: number;
+    exploration: number;
   };
   displayFitness?: number;
   displayBreakdown?: {
     gold: number;
     mines: number;
     survival: number;
-    combat: number;
+    exploration: number;
   };
+  fitnessMean?: number;
+  fitnessVariance?: number;
+  displayVariance?: number;
+  fitnessSamples?: number;
+  lastSimulationParams?: {
+    baseSimulations: number;
+    eliteSimulations: number;
+  };
+  gamesPlayed?: number;
 }
 
 export type SavedCandidate = {
